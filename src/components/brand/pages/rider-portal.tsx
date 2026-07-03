@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { KES } from "../logo";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useToast } from "@/hooks/use-toast";
+import { OtpLoginGate } from "../ui/otp-login-gate";
 import type { AppNotification, Order, RiderPortal } from "@/lib/types";
 
 // Seeded rider pool — kept in sync with src/lib/pricing.ts RIDERS so the portal
@@ -125,8 +126,8 @@ export function RiderPortalPage({
 }) {
   const { toast } = useToast();
 
-  // Login state
-  const [phoneInput, setPhoneInput] = useState("");
+  // Login state — phone + OTP
+  const [portalToken, setPortalTokenState] = useState<string | null>(null);
   const [riderKey, setRiderKey] = useState("");
   const [loadingPortal, setLoadingPortal] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
@@ -157,44 +158,47 @@ export function RiderPortalPage({
   const { connected, presence, notifications: socketNotifications } =
     useRealtime(me);
 
-  // ---- Login ----
-  const handleLogin = useCallback(async () => {
-    const key = normPhone(phoneInput);
-    if (!key) {
-      setPortalError("Enter your rider phone number to sign in.");
-      return;
-    }
+  // ---- OTP Login ----
+  const handleOtpVerified = useCallback(async (phone: string, token: string) => {
+    // Use original phone format (07xx) as riderKey to match seeded rider data
+    const key = phone.replace(/\s/g, "");
+    setPortalTokenState(token);
     setLoadingPortal(true);
     setPortalError(null);
     try {
       const res = await fetch(
-        `/api/portal/rider?riderKey=${encodeURIComponent(key)}`
+        `/api/portal/rider?riderKey=${encodeURIComponent(key)}`,
+        { headers: { "x-portal-token": token } }
       );
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Failed (${res.status})`);
+      }
       const data = (await res.json()) as { portal: RiderPortal };
       setPortal(data.portal);
       setPlateDraft(data.portal.plate || "");
       setRiderKey(key);
       toast({
-        title: `Karibu, ${data.portal.fullName || "rider"}! 🛵`,
+        title: `Karibu, ${data.portal.fullName || "rider"}!`,
         description: "You're signed in to the rider portal.",
       });
     } catch (e) {
       setPortalError(
         e instanceof Error ? e.message : "Could not load rider portal."
       );
+      setPortalTokenState(null);
     } finally {
       setLoadingPortal(false);
     }
-  }, [phoneInput, toast]);
+  }, [toast]);
 
   const handleSignOut = useCallback(() => {
     setRiderKey("");
     setPortal(null);
-    setPhoneInput("");
     setOrders([]);
     setServerNotifications([]);
     setPortalError(null);
+    setPortalTokenState(null);
   }, []);
 
   // ---- Loaders ----
@@ -417,59 +421,26 @@ export function RiderPortalPage({
     );
   }, [serverNotifications, socketNotifications, riderKey]);
 
-  // =================== Empty state: login gate ===================
+  // =================== Empty state: OTP login gate ===================
   if (!riderKey || !portal) {
-    return (
-      <div className="mx-auto max-w-md space-y-5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Bike className="text-brand" size={24} />
-            <h1 className="text-2xl font-extrabold">Rider Portal</h1>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Sign in with your rider phone to see assigned deliveries, live
-            alerts, and earnings.
-          </p>
+    if (loadingPortal) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="animate-spin text-brand" size={28} />
         </div>
-
-        <Card className="space-y-4 p-6">
-          <div className="space-y-2">
-            <Label htmlFor="rider-phone">Rider phone</Label>
-            <Input
-              id="rider-phone"
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder="e.g. 0711 224 118"
-              value={phoneInput}
-              onChange={(e) => setPhoneInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleLogin();
-              }}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Demo riders: {SEEDED_PHONE_HINTS.join(" · ")}
-            </p>
-          </div>
-
-          {portalError && <p className="text-sm text-destructive">{portalError}</p>}
-
-          <Button
-            className="w-full bg-brand text-white hover:bg-brand-dark"
-            onClick={() => void handleLogin()}
-            disabled={loadingPortal}
-          >
-            {loadingPortal ? (
-              <>
-                <Loader2 size={16} className="animate-spin" /> Signing in…
-              </>
-            ) : (
-              <>
-                <Bike size={16} /> Enter portal
-              </>
-            )}
-          </Button>
-        </Card>
-
+      );
+    }
+    return (
+      <div className="space-y-4">
+        <OtpLoginGate
+          kind="rider"
+          icon={<Bike className="text-brand" size={26} />}
+          title="Rider Portal"
+          subtitle="Sign in with your phone to see assigned deliveries, live alerts, and earnings."
+          placeholder="e.g. 0711 224 118"
+          hint={`Demo riders: ${SEEDED_PHONE_HINTS.join(" · ")}`}
+          onVerified={handleOtpVerified}
+        />
         <p className="text-center text-xs text-muted-foreground">
           Want to shop instead?{" "}
           <button

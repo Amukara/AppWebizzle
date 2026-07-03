@@ -17,6 +17,7 @@ import {
   Star,
   Store,
   Users,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,6 +28,7 @@ import { KES } from "../logo";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { OtpLoginGate } from "../ui/otp-login-gate";
 import type {
   AppNotification,
   ChatMessage,
@@ -34,8 +36,16 @@ import type {
   VendorPortal,
 } from "@/lib/types";
 
-// The six seeded vendor ids (see prisma/seed.js).
-const SEEDED_VENDORS = ["v1", "v2", "v3", "v4", "v5", "v6"];
+// Portal session token (set after OTP verification).
+const PORTAL_TOKEN_KEY = "wb_vendor_portal_token";
+function getPortalToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try { return sessionStorage.getItem(PORTAL_TOKEN_KEY); } catch { return null; }
+}
+function setPortalToken(t: string | null) {
+  if (typeof window === "undefined") return;
+  try { if (t) sessionStorage.setItem(PORTAL_TOKEN_KEY, t); else sessionStorage.removeItem(PORTAL_TOKEN_KEY); } catch {}
+}
 
 // ---------- helpers ----------
 function relativeTime(iso: string): string {
@@ -70,70 +80,7 @@ function isWithinDuty(start: string, end: string, now = nowHHMM()): boolean {
   return now >= start || now < end; // overnight
 }
 
-// ---------- login gate ----------
-function LoginGate({
-  value,
-  onChange,
-  onSubmit,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onSubmit: () => void;
-}) {
-  const [local, setLocal] = React.useState(value);
-  return (
-    <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-4 py-10">
-      <Card className="w-full p-6">
-        <div className="mb-5 flex flex-col items-center text-center">
-          <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-brand-light">
-            <Store className="text-brand" size={26} />
-          </div>
-          <h1 className="text-xl font-bold text-foreground">
-            Vendor Portal
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Sign in with your vendor id to manage your shop, orders and
-            support chat.
-          </p>
-        </div>
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSubmit();
-          }}
-        >
-          <div className="space-y-2">
-            <Label htmlFor="vendor-id">Vendor ID</Label>
-            <Input
-              id="vendor-id"
-              placeholder="v1"
-              value={local}
-              onChange={(e) => {
-                setLocal(e.target.value);
-                onChange(e.target.value);
-              }}
-              autoComplete="off"
-            />
-            <p className="text-xs text-muted-foreground">
-              Seeded shops:{" "}
-              <span className="font-medium text-foreground">
-                {SEEDED_VENDORS.join(", ")}
-              </span>
-            </p>
-          </div>
-          <Button
-            type="submit"
-            className="w-full bg-brand text-primary-foreground hover:bg-brand-dark"
-            disabled={!local.trim()}
-          >
-            Enter portal
-          </Button>
-        </form>
-      </Card>
-    </div>
-  );
-}
+// Vendor portal auth: phone + OTP → session token → look up by phone.
 
 // ---------- online status dot ----------
 function OnlineDot({ online }: { online: boolean }) {
@@ -158,8 +105,9 @@ export function VendorPortalPage({
 }) {
   const { toast } = useToast();
 
-  // login gate
-  const [vendorIdInput, setVendorIdInput] = React.useState("v1");
+  // login gate — phone + OTP auth
+  const [verifiedPhone, setVerifiedPhone] = React.useState<string | null>(null);
+  const [portalToken, setPortalTokenState] = React.useState<string | null>(getPortalToken);
   const [vendorId, setVendorId] = React.useState<string | null>(null);
 
   // profile
@@ -255,12 +203,15 @@ export function VendorPortalPage({
   }, [rtNotifications, vendorId, toast]);
 
   // ---- loaders ----
-  const loadProfile = React.useCallback(async (vid: string) => {
+  const loadProfile = React.useCallback(async (vid: string, token?: string | null) => {
     setLoadingProfile(true);
     setProfileError(null);
     try {
+      const headers: Record<string, string> = {};
+      if (token) headers["x-portal-token"] = token;
       const res = await fetch(
-        `/api/portal/vendor?vendorId=${encodeURIComponent(vid)}`
+        `/api/portal/vendor?vendorId=${encodeURIComponent(vid)}`,
+        { headers }
       );
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -501,16 +452,88 @@ export function VendorPortalPage({
     }
   }
 
+  // ---------- OTP verified → look up vendor by phone ----------
+  const handleOtpVerified = React.useCallback(async (phone: string, token: string) => {
+    setVerifiedPhone(phone);
+    setPortalTokenState(token);
+    setPortalToken(token);
+    // Look up vendor portal by phone
+    setLoadingProfile(true);
+    setProfileError(null);
+    try {
+      const res = await fetch(`/api/portal/vendor?phone=${encodeURIComponent(phone)}`, {
+        headers: { "x-portal-token": token },
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Failed (${res.status})`);
+      }
+      const data = await res.json();
+      if (!data.portal || !data.vendor) {
+        throw new Error("No vendor found for this phone. Please register as a vendor first.");
+      }
+      setVendorId(data.vendor.id);
+      setPortal(data.portal);
+      setVendor(data.vendor);
+      setDutyStart(data.portal.dutyStart || "");
+      setDutyEnd(data.portal.dutyEnd || "");
+      setPhoneInput(data.portal.phone || "");
+      toast({ title: `Karibu, ${data.vendor.name}!`, description: "You're signed in to the vendor portal." });
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : "Could not load vendor portal.");
+      setPortalTokenState(null);
+      setPortalToken(null);
+    } finally {
+      setLoadingProfile(false);
+    }
+  }, [toast]);
+
+  // Auto-load profile if we have a vendorId
+  React.useEffect(() => {
+    if (vendorId && !portal) void loadProfile(vendorId, portalToken);
+  }, [vendorId, portal, portalToken, loadProfile]);
+
+  const handleSignOut = React.useCallback(() => {
+    setVendorId(null);
+    setPortal(null);
+    setVendor(null);
+    setVerifiedPhone(null);
+    setPortalTokenState(null);
+    setPortalToken(null);
+    setNotifications([]);
+    setMessages([]);
+    setProfileError(null);
+  }, []);
+
   // ---------- gate ----------
   if (!vendorId) {
+    if (loadingProfile) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="animate-spin text-brand" size={28} />
+        </div>
+      );
+    }
+    if (profileError) {
+      return (
+        <OtpLoginGate
+          kind="vendor"
+          icon={<Store className="text-brand" size={26} />}
+          title="Vendor Portal"
+          subtitle="Sign in with your phone to manage your shop, orders and support chat."
+          placeholder="e.g. 0712 345 678"
+          onVerified={handleOtpVerified}
+        />
+      );
+    }
     return (
-      <LoginGate
-        value={vendorIdInput}
-        onChange={setVendorIdInput}
-        onSubmit={() => {
-          const v = vendorIdInput.trim();
-          if (v) setVendorId(v);
-        }}
+      <OtpLoginGate
+        kind="vendor"
+        icon={<Store className="text-brand" size={26} />}
+        title="Vendor Portal"
+        subtitle="Sign in with your phone to manage your shop, orders and support chat."
+        placeholder="e.g. 0712 345 678"
+        onVerified={handleOtpVerified}
       />
     );
   }
@@ -557,12 +580,9 @@ export function VendorPortalPage({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  setVendorId(null);
-                  setVendorIdInput("");
-                }}
+                onClick={handleSignOut}
               >
-                Try a different vendor id
+                Sign out
               </Button>
             </div>
           ) : (

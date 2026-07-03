@@ -140,7 +140,7 @@ function FAQ({ q, a }: { q: string; a: string }) {
   );
 }
 
-export function VendorSignupPage() {
+export function VendorSignupPage({ onNavigate }: { onNavigate: (p: string) => void }) {
   return (
     <SignupPage
       icon={<Store className="text-brand" size={24} />}
@@ -149,6 +149,9 @@ export function VendorSignupPage() {
       accent="brand"
       endpoint="/api/applications/vendor"
       withLogo
+      otpPurpose="VENDOR_SIGNUP"
+      portalPage="vendor-portal"
+      onNavigate={onNavigate}
       fields={[
         { id: "shopName", label: "Shop name", icon: <Store size={14} />, placeholder: "e.g. Baraka General Store" },
         { id: "ownerName", label: "Owner name", icon: <User size={14} />, placeholder: "e.g. John Mwangi" },
@@ -171,7 +174,7 @@ export function VendorSignupPage() {
   );
 }
 
-export function RiderSignupPage() {
+export function RiderSignupPage({ onNavigate }: { onNavigate: (p: string) => void }) {
   return (
     <SignupPage
       icon={<Bike className="text-brand" size={24} />}
@@ -179,6 +182,9 @@ export function RiderSignupPage() {
       desc="Deliver in your neighbourhood and earn on every trip. Flexible hours, weekly M-Pesa payouts."
       accent="brand"
       endpoint="/api/applications/rider"
+      otpPurpose="RIDER_SIGNUP"
+      portalPage="rider-portal"
+      onNavigate={onNavigate}
       fields={[
         { id: "fullName", label: "Full name", icon: <User size={14} />, placeholder: "e.g. Peter Mutua" },
         { id: "phone", label: "Phone (M-Pesa)", icon: <Phone size={14} />, placeholder: "07XXXXXXXX" },
@@ -208,6 +214,9 @@ function SignupPage({
   perks,
   withLogo = false,
   docs = [],
+  otpPurpose,
+  portalPage,
+  onNavigate,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -221,6 +230,9 @@ function SignupPage({
   perks: { icon: React.ReactNode; text: string }[];
   withLogo?: boolean;
   docs?: { id: string; label: string; hint: string }[];
+  otpPurpose?: string;
+  portalPage?: string;
+  onNavigate?: (p: string) => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [logo, setLogo] = useState<string | null>(null);
@@ -228,6 +240,8 @@ function SignupPage({
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [otpSent, setOtpSent] = useState(false);
+  const [signupPhone, setSignupPhone] = useState<string | null>(null);
   const { toast } = useToast();
 
   const canSubmit =
@@ -257,6 +271,22 @@ function SignupPage({
         title: "Application submitted!",
         description: data.message,
       });
+      // Send OTP and redirect to portal if configured
+      const phone = values.phone;
+      if (otpPurpose && portalPage && onNavigate && phone) {
+        setSignupPhone(phone);
+        try {
+          await fetch("/api/otp/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone, purpose: otpPurpose }),
+          });
+          setOtpSent(true);
+        } catch {
+          // OTP send failed — still redirect, they can request OTP at the portal
+          onNavigate(portalPage);
+        }
+      }
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -286,17 +316,28 @@ function SignupPage({
             WB-{Date.now().toString(36).toUpperCase().slice(-6)}
           </div>
         </Card>
-        <Button
-          className="w-full bg-brand text-white hover:bg-brand-dark"
-          onClick={() => {
-            setDone(false);
-            setValues({});
-            setLogo(null);
-            setDocFiles({});
-          }}
-        >
-          Submit another
-        </Button>
+        {otpSent && portalPage && onNavigate ? (
+          <Button
+            className="w-full bg-brand text-white hover:bg-brand-dark"
+            onClick={() => onNavigate(portalPage)}
+          >
+            <ShieldCheck size={16} /> Continue to your portal
+          </Button>
+        ) : (
+          <Button
+            className="w-full bg-brand text-white hover:bg-brand-dark"
+            onClick={() => {
+              setDone(false);
+              setValues({});
+              setLogo(null);
+              setDocFiles({});
+              setOtpSent(false);
+              setSignupPhone(null);
+            }}
+          >
+            Submit another
+          </Button>
+        )}
       </div>
     );
   }

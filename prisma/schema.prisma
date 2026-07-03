@@ -230,3 +230,17 @@ model ChatMessage {
   @@index([channel, createdAt])
 }
 
+// OTP codes for phone verification (vendor & rider login)
+model OtpCode {
+  id        String   @id @default(cuid())
+  phone     String   // normalised phone (e.g. 254711223344)
+  code      String   // 6-digit code
+  purpose   String   // VENDOR_LOGIN, RIDER_LOGIN, VENDOR_SIGNUP, RIDER_SIGNUP
+  verified  Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone, purpose])
+  @@index([expiresAt])
+}
+

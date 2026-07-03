@@ -1,17 +1,24 @@
 ---
-Task ID: 1
+Task ID: 2
 Agent: main
-Task: Complete Airtable integration for WeBizzle admin dashboard
+Task: Implement OTP phone verification for vendor & rider portal login
 
 Work Log:
-- Verified all Airtable code already existed: lib/airtable.ts (421 lines), 4 API routes, admin UI tab
-- Confirmed .env.local has AIRTABLE_BASE_ID and AIRTABLE_PERSONAL_ACCESS_TOKEN
-- Tested /api/airtable/status — token authenticates (amukara@gmail.com) but lacks base access
-- Improved error message in testAirtableConnection() with step-by-step fix instructions
-- Verified auto-push on order creation is wired up in /api/orders/route.ts
-- All 4 API routes verified: status, sync-orders, sync-vendors, sync-products
+- Added OtpCode model to Prisma schema (phone, code, purpose, verified, expiresAt)
+- Created src/lib/sms.ts — Africa's Talking integration with dev-mode fallback (logs code to console, returns in API response)
+- Created src/lib/portal-auth.ts — HMAC-signed portal session tokens (mirrors admin auth pattern)
+- Created /api/otp/send — generates 6-digit code, rate-limits (3/5min), sends SMS, returns devCode in dev mode
+- Created /api/otp/verify — validates code, marks verified, issues 8hr session token
+- Created src/components/brand/ui/otp-login-gate.tsx — shared 2-step OTP login component with InputOTP
+- Replaced vendor-portal.tsx old LoginGate (vendor ID input) with OtpLoginGate (phone + OTP)
+- Replaced rider-portal.tsx old login form (phone input, no auth) with OtpLoginGate (phone + OTP)
+- Updated /api/portal/vendor to support phone-based lookup (for OTP-authenticated access)
+- Updated /api/portal/rider GET to pre-fill name/plate from seeded rider pool on creation
+- Modified VendorSignupPage and RiderSignupPage to trigger OTP after registration and show "Continue to portal" button
+- Updated page.tsx to pass onNavigate to signup pages
 
 Stage Summary:
-- Airtable integration is 100% code-complete
-- Blocker: Token needs "All current and future bases" access on Airtable side
-- User needs to update token at https://airtable.com/create/tokens
+- Full OTP flow tested E2E: send OTP → verify → portal lookup works
+- Rider portal correctly pre-fills name/plate from seeded data
+- Dev mode shows OTP code in UI for testing without real SMS
+- For production: set AFRICASTALKING_API_KEY and AFRICASTALKING_USERNAME in .env.local

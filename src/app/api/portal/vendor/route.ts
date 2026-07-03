@@ -1,12 +1,66 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { normalisePhone } from "@/lib/sms";
 
-// GET /api/portal/vendor?vendorId=v1 — fetch (or auto-create) a vendor portal profile.
+// GET /api/portal/vendor?vendorId=v1  — fetch (or auto-create) a vendor portal profile.
+// GET /api/portal/vendor?phone=0712345678  — look up vendor portal by phone (OTP-authenticated).
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const vendorId = searchParams.get("vendorId");
+  const phone = searchParams.get("phone");
+
+  if (phone) {
+    // Phone-based lookup (after OTP verification)
+    const norm = normalisePhone(phone);
+    // Look for a VendorPortal with this phone number
+    const portal = await db.vendorPortal.findFirst({ where: { phone: norm } });
+    if (!portal) {
+      // Also check VendorApplication for pending/approved vendors
+      const app = await db.vendorApplication.findFirst({
+        where: { phone: norm, status: { in: ["PENDING", "APPROVED"] } },
+        orderBy: { createdAt: "desc" },
+      });
+      if (app) {
+        return NextResponse.json({
+          error: app.status === "PENDING"
+            ? "Your vendor application is still pending approval. We'll notify you once approved."
+            : "Your application was approved but your shop isn't set up yet. Contact support.",
+        }, { status: 403 });
+      }
+      return NextResponse.json(
+        { error: "No vendor found for this phone. Please register as a vendor first." },
+        { status: 404 }
+      );
+    }
+    const vendor = await db.vendor.findUnique({ where: { id: portal.vendorId } });
+    if (!vendor) {
+      return NextResponse.json({ error: "Vendor not found" }, { status: 404 });
+    }
+    return NextResponse.json({
+      portal: {
+        id: portal.id,
+        vendorId: portal.vendorId,
+        shopName: portal.shopName,
+        phone: portal.phone,
+        isOnline: portal.isOnline,
+        dutyStart: portal.dutyStart,
+        dutyEnd: portal.dutyEnd,
+        lastSeen: portal.lastSeen.toISOString(),
+      },
+      vendor: {
+        id: vendor.id,
+        name: vendor.name,
+        emoji: vendor.emoji,
+        type: vendor.type,
+        location: vendor.location,
+        rating: vendor.rating,
+      },
+    });
+  }
+
+  // vendorId-based lookup (legacy / internal)
   if (!vendorId) {
-    return NextResponse.json({ error: "vendorId is required" }, { status: 400 });
+    return NextResponse.json({ error: "vendorId or phone is required" }, { status: 400 });
   }
   const vendor = await db.vendor.findUnique({ where: { id: vendorId } });
   if (!vendor) {

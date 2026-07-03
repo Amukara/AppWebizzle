@@ -275,8 +275,8 @@ export default function App() {
 
         {page === "support" && <SupportPage />}
 
-        {page === "vendor-signup" && <VendorSignupPage />}
-        {page === "rider-signup" && <RiderSignupPage />}
+        {page === "vendor-signup" && <VendorSignupPage onNavigate={navigate} />}
+        {page === "rider-signup" && <RiderSignupPage onNavigate={navigate} />}
       </main>
 
       <Footer onNavigate={navigate} />

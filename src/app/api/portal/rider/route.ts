@@ -15,9 +15,9 @@ export async function GET(req: Request) {
     update: {},
     create: {
       riderKey,
-      fullName: "",
+      fullName: pickRider(riderKey).name,
       phone: riderKey,
-      plate: "",
+      plate: pickRider(riderKey).plate,
     },
   });
   return NextResponse.json({

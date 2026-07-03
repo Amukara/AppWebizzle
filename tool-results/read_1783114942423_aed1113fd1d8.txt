@@ -1,0 +1,858 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+     4→     4→import {
+     5→     5→  Bell,
+     6→     6→  Bike,
+     7→     7→  CheckCheck,
+     8→     8→  Clock,
+     9→     9→  Loader2,
+    10→    10→  LogOut,
+    11→    11→  MapPin,
+    12→    12→  Phone,
+    13→    13→  Star,
+    14→    14→  Truck,
+    15→    15→  User,
+    16→    16→  Wallet,
+    17→    17→  Zap,
+    18→    18→} from "lucide-react";
+    19→    19→import { Button } from "@/components/ui/button";
+    20→    20→import { Card } from "@/components/ui/card";
+    21→    21→import { Input } from "@/components/ui/input";
+    22→    22→import { Label } from "@/components/ui/label";
+    23→    23→import { Badge } from "@/components/ui/badge";
+    24→    24→import { Switch } from "@/components/ui/switch";
+    25→    25→import { KES } from "../logo";
+    26→    26→import { useRealtime } from "@/hooks/use-realtime";
+    27→    27→import { useToast } from "@/hooks/use-toast";
+    28→    28→import type { AppNotification, Order, RiderPortal } from "@/lib/types";
+    29→    29→
+    30→    30→// Seeded rider pool — kept in sync with src/lib/pricing.ts RIDERS so the portal
+    31→    31→// can show the rating (the RiderPortal type doesn't carry a rating field).
+    32→    32→const SEEDED_RIDERS: {
+    33→    33→  phone: string;
+    34→    34→  name: string;
+    35→    35→  plate: string;
+    36→    36→  rating: number;
+    37→    37→}[] = [
+    38→    38→  { phone: "0711224118", name: "Peter Mutua", plate: "KMEA 224B", rating: 4.8 },
+    39→    39→  { phone: "0722902553", name: "Brian Otieno", plate: "KMEB 902X", rating: 4.7 },
+    40→    40→  { phone: "0701771209", name: "Faith Wanjiru", plate: "KMFC 771A", rating: 4.9 },
+    41→    41→  { phone: "0733550441", name: "Samuel Kiptoo", plate: "KMDD 550C", rating: 4.6 },
+    42→    42→  { phone: "0790318776", name: "Grace Auma", plate: "KMLG 318P", rating: 4.8 },
+    43→    43→];
+    44→    44→
+    45→    45→// Hint list shown on the login gate (with spaces, as a customer would read them).
+    46→    46→const SEEDED_PHONE_HINTS = [
+    47→    47→  "0711 224 118",
+    48→    48→  "0722 902 553",
+    49→    49→  "0701 771 209",
+    50→    50→  "0733 550 441",
+    51→    51→  "0790 318 776",
+    52→    52→];
+    53→    53→
+    54→    54→function normPhone(s: string): string {
+    55→    55→  return (s || "").replace(/\s+/g, "");
+    56→    56→}
+    57→    57→
+    58→    58→function relativeTime(iso: string): string {
+    59→    59→  const then = new Date(iso).getTime();
+    60→    60→  if (Number.isNaN(then)) return "";
+    61→    61→  const diff = Math.max(0, Date.now() - then);
+    62→    62→  const s = Math.floor(diff / 1000);
+    63→    63→  if (s < 60) return "just now";
+    64→    64→  const m = Math.floor(s / 60);
+    65→    65→  if (m < 60) return `${m}m ago`;
+    66→    66→  const h = Math.floor(m / 60);
+    67→    67→  if (h < 24) return `${h}h ago`;
+    68→    68→  const d = Math.floor(h / 24);
+    69→    69→  return `${d}d ago`;
+    70→    70→}
+    71→    71→
+    72→    72→function statusPillClass(status: string): string {
+    73→    73→  switch ((status || "").toUpperCase()) {
+    74→    74→    case "DELIVERED":
+    75→    75→      return "bg-brand-light text-brand";
+    76→    76→    case "DISPATCHED":
+    77→    77→      return "bg-gold/15 text-gold";
+    78→    78→    case "CONFIRMED":
+    79→    79→      return "bg-amber-100 text-amber-800";
+    80→    80→    case "PLACED":
+    81→    81→      return "bg-muted text-muted-foreground";
+    82→    82→    default:
+    83→    83→      return "bg-muted text-muted-foreground";
+    84→    84→  }
+    85→    85→}
+    86→    86→
+    87→    87→// Normalise a raw socket "notification" payload (which may be the AppNotification
+    88→    88→// shape OR the leaner {type, orderId, customerName, total, at} shape the realtime
+    89→    89→// service emits) into an AppNotification-shaped object.
+    90→    90→function normalizeSocketNotif(
+    91→    91→  raw: unknown,
+    92→    92→  riderKey: string
+    93→    93→): AppNotification | null {
+    94→    94→  if (!raw || typeof raw !== "object") return null;
+    95→    95→  const n = raw as Record<string, unknown>;
+    96→    96→  const at = (n.at as string) || (n.createdAt as string) || new Date().toISOString();
+    97→    97→  const type = (n.type as string) || "SYSTEM";
+    98→    98→  const id =
+    99→    99→    (n.id as string) || `socket-${at}-${type}-${(n.orderId as string) || ""}`;
+   100→   100→  const title =
+   101→   101→    (n.title as string) ||
+   102→   102→    (type === "NEW_ORDER" ? "New order 🛒" : type === "DISPATCH" ? "Dispatch alert 🛵" : "New alert");
+   103→   103→  const body =
+   104→   104→    (n.body as string) ||
+   105→   105→    (n.customerName && typeof n.total === "number"
+   106→   106→      ? `${n.customerName} · KES ${Number(n.total).toLocaleString("en-KE")}`
+   107→   107→      : "");
+   108→   108→  return {
+   109→   109→    id,
+   110→   110→    recipientType: "RIDER",
+   111→   111→    recipientId: riderKey,
+   112→   112→    type,
+   113→   113→    title,
+   114→   114→    body,
+   115→   115→    read: false,
+   116→   116→    orderId: (n.orderId as string) || null,
+   117→   117→    createdAt: at,
+   118→   118→  };
+   119→   119→}
+   120→   120→
+   121→   121→export function RiderPortalPage({
+   122→   122→  onNavigate,
+   123→   123→}: {
+   124→   124→  onNavigate: (p: "home" | "basket") => void;
+   125→   125→}) {
+   126→   126→  const { toast } = useToast();
+   127→   127→
+   128→   128→  // Login state
+   129→   129→  const [phoneInput, setPhoneInput] = useState("");
+   130→   130→  const [riderKey, setRiderKey] = useState("");
+   131→   131→  const [loadingPortal, setLoadingPortal] = useState(false);
+   132→   132→  const [portalError, setPortalError] = useState<string | null>(null);
+   133→   133→
+   134→   134→  // Portal + data
+   135→   135→  const [portal, setPortal] = useState<RiderPortal | null>(null);
+   136→   136→  const [orders, setOrders] = useState<Order[]>([]);
+   137→   137→  const [serverNotifications, setServerNotifications] = useState<AppNotification[]>(
+   138→   138→    []
+   139→   139→  );
+   140→   140→
+   141→   141→  // Editable profile fields
+   142→   142→  const [plateDraft, setPlateDraft] = useState("");
+   143→   143→  const [savingPlate, setSavingPlate] = useState(false);
+   144→   144→
+   145→   145→  // Online toggle in-flight
+   146→   146→  const [togglingOnline, setTogglingOnline] = useState(false);
+   147→   147→
+   148→   148→  // Realtime presence — only register when the rider is online.
+   149→   149→  const me = useMemo(() => {
+   150→   150→    if (!riderKey || !portal?.isOnline) return null;
+   151→   151→    return {
+   152→   152→      kind: "rider" as const,
+   153→   153→      id: riderKey,
+   154→   154→      name: portal.fullName || riderKey,
+   155→   155→    };
+   156→   156→  }, [riderKey, portal?.isOnline, portal?.fullName]);
+   157→   157→  const { connected, presence, notifications: socketNotifications } =
+   158→   158→    useRealtime(me);
+   159→   159→
+   160→   160→  // ---- Login ----
+   161→   161→  const handleLogin = useCallback(async () => {
+   162→   162→    const key = normPhone(phoneInput);
+   163→   163→    if (!key) {
+   164→   164→      setPortalError("Enter your rider phone number to sign in.");
+   165→   165→      return;
+   166→   166→    }
+   167→   167→    setLoadingPortal(true);
+   168→   168→    setPortalError(null);
+   169→   169→    try {
+   170→   170→      const res = await fetch(
+   171→   171→        `/api/portal/rider?riderKey=${encodeURIComponent(key)}`
+   172→   172→      );
+   173→   173→      if (!res.ok) throw new Error(`Failed (${res.status})`);
+   174→   174→      const data = (await res.json()) as { portal: RiderPortal };
+   175→   175→      setPortal(data.portal);
+   176→   176→      setPlateDraft(data.portal.plate || "");
+   177→   177→      setRiderKey(key);
+   178→   178→      toast({
+   179→   179→        title: `Karibu, ${data.portal.fullName || "rider"}! 🛵`,
+   180→   180→        description: "You're signed in to the rider portal.",
+   181→   181→      });
+   182→   182→    } catch (e) {
+   183→   183→      setPortalError(
+   184→   184→        e instanceof Error ? e.message : "Could not load rider portal."
+   185→   185→      );
+   186→   186→    } finally {
+   187→   187→      setLoadingPortal(false);
+   188→   188→    }
+   189→   189→  }, [phoneInput, toast]);
+   190→   190→
+   191→   191→  const handleSignOut = useCallback(() => {
+   192→   192→    setRiderKey("");
+   193→   193→    setPortal(null);
+   194→   194→    setPhoneInput("");
+   195→   195→    setOrders([]);
+   196→   196→    setServerNotifications([]);
+   197→   197→    setPortalError(null);
+   198→   198→  }, []);
+   199→   199→
+   200→   200→  // ---- Loaders ----
+   201→   201→  const loadPortal = useCallback(async (key: string) => {
+   202→   202→    try {
+   203→   203→      const res = await fetch(
+   204→   204→        `/api/portal/rider?riderKey=${encodeURIComponent(key)}`
+   205→   205→      );
+   206→   206→      if (!res.ok) return;
+   207→   207→      const data = (await res.json()) as { portal: RiderPortal };
+   208→   208→      setPortal(data.portal);
+   209→   209→      setPlateDraft(data.portal.plate || "");
+   210→   210→    } catch {
+   211→   211→      // best-effort
+   212→   212→    }
+   213→   213→  }, []);
+   214→   214→
+   215→   215→  const loadNotifications = useCallback(async (key: string) => {
+   216→   216→    try {
+   217→   217→      const res = await fetch(
+   218→   218→        `/api/notifications?recipientType=RIDER&recipientId=${encodeURIComponent(
+   219→   219→          key
+   220→   220→        )}`
+   221→   221→      );
+   222→   222→      if (!res.ok) return;
+   223→   223→      const data = (await res.json()) as { notifications: AppNotification[] };
+   224→   224→      setServerNotifications(data.notifications);
+   225→   225→    } catch {
+   226→   226→      // best-effort
+   227→   227→    }
+   228→   228→  }, []);
+   229→   229→
+   230→   230→  const loadOrders = useCallback(async (portalPhone: string) => {
+   231→   231→    try {
+   232→   232→      const res = await fetch("/api/orders");
+   233→   233→      if (!res.ok) return;
+   234→   234→      const data = (await res.json()) as { orders: Order[] };
+   235→   235→      const target = normPhone(portalPhone);
+   236→   236→      const mine = data.orders.filter(
+   237→   237→        (o) => o.rider && normPhone(o.rider.phone) === target
+   238→   238→      );
+   239→   239→      setOrders(mine);
+   240→   240→    } catch {
+   241→   241→      // best-effort
+   242→   242→    }
+   243→   243→  }, []);
+   244→   244→
+   245→   245→  // Initial pull right after login.
+   246→   246→  useEffect(() => {
+   247→   247→    if (!riderKey || !portal) return;
+   248→   248→    void loadNotifications(riderKey);
+   249→   249→    void loadOrders(portal.phone);
+   250→   250→  }, [riderKey, portal, loadNotifications, loadOrders]);
+   251→   251→
+   252→   252→  // Poll notifications + assigned deliveries every 15s.
+   253→   253→  useEffect(() => {
+   254→   254→    if (!riderKey || !portal) return;
+   255→   255→    const id = setInterval(() => {
+   256→   256→      void loadNotifications(riderKey);
+   257→   257→      void loadOrders(portal.phone);
+   258→   258→    }, 15000);
+   259→   259→    return () => clearInterval(id);
+   260→   260→  }, [riderKey, portal, loadNotifications, loadOrders]);
+   261→   261→
+   262→   262→  // ---- Online/offline toggle ----
+   263→   263→  const toggleOnline = useCallback(
+   264→   264→    async (next: boolean) => {
+   265→   265→      if (!riderKey || !portal) return;
+   266→   266→      setTogglingOnline(true);
+   267→   267→      // Optimistic flip
+   268→   268→      setPortal({ ...portal, isOnline: next });
+   269→   269→      try {
+   270→   270→        const res = await fetch("/api/portal/rider", {
+   271→   271→          method: "PATCH",
+   272→   272→          headers: { "content-type": "application/json" },
+   273→   273→          body: JSON.stringify({ riderKey, isOnline: next }),
+   274→   274→        });
+   275→   275→        if (!res.ok) throw new Error(`Failed (${res.status})`);
+   276→   276→        const data = (await res.json()) as { portal: RiderPortal };
+   277→   277→        setPortal(data.portal);
+   278→   278→        toast({
+   279→   279→          title: next ? "You're online 🛵" : "You're offline",
+   280→   280→          description: next
+   281→   281→            ? "Ready for dispatch — new orders will ping you."
+   282→   282→            : "No new deliveries will be assigned.",
+   283→   283→        });
+   284→   284→      } catch {
+   285→   285→        // Revert on failure
+   286→   286→        setPortal({ ...portal, isOnline: !next });
+   287→   287→        toast({
+   288→   288→          title: "Could not update status",
+   289→   289→          description: "Please try again.",
+   290→   290→        });
+   291→   291→      } finally {
+   292→   292→        setTogglingOnline(false);
+   293→   293→      }
+   294→   294→    },
+   295→   295→    [riderKey, portal, toast]
+   296→   296→  );
+   297→   297→
+   298→   298→  // ---- Save plate on blur ----
+   299→   299→  const savePlate = useCallback(async () => {
+   300→   300→    if (!riderKey || !portal) return;
+   301→   301→    const trimmed = plateDraft.trim().toUpperCase();
+   302→   302→    if (trimmed === (portal.plate || "").toUpperCase()) return;
+   303→   303→    setSavingPlate(true);
+   304→   304→    try {
+   305→   305→      const res = await fetch("/api/portal/rider", {
+   306→   306→        method: "PATCH",
+   307→   307→        headers: { "content-type": "application/json" },
+   308→   308→        body: JSON.stringify({ riderKey, plate: trimmed }),
+   309→   309→      });
+   310→   310→      if (!res.ok) throw new Error(`Failed (${res.status})`);
+   311→   311→      const data = (await res.json()) as { portal: RiderPortal };
+   312→   312→      setPortal(data.portal);
+   313→   313→      setPlateDraft(data.portal.plate || "");
+   314→   314→      toast({
+   315→   315→        title: "Plate updated",
+   316→   316→        description: trimmed || "Plate cleared",
+   317→   317→      });
+   318→   318→    } catch {
+   319→   319→      toast({
+   320→   320→        title: "Could not save plate",
+   321→   321→        description: "Please try again.",
+   322→   322→      });
+   323→   323→    } finally {
+   324→   324→      setSavingPlate(false);
+   325→   325→    }
+   326→   326→  }, [riderKey, portal, plateDraft, toast]);
+   327→   327→
+   328→   328→  // ---- Mark notification as read ----
+   329→   329→  const markRead = useCallback((n: AppNotification) => {
+   330→   330→    if (n.read) return;
+   331→   331→    setServerNotifications((prev) =>
+   332→   332→      prev.map((x) => (x.id === n.id ? { ...x, read: true } : x))
+   333→   333→    );
+   334→   334→    void fetch("/api/notifications/read", {
+   335→   335→      method: "POST",
+   336→   336→      headers: { "content-type": "application/json" },
+   337→   337→      body: JSON.stringify({ id: n.id }),
+   338→   338→    }).catch(() => {});
+   339→   339→  }, []);
+   340→   340→
+   341→   341→  const markAllRead = useCallback(() => {
+   342→   342→    if (!riderKey) return;
+   343→   343→    setServerNotifications((prev) => prev.map((x) => ({ ...x, read: true })));
+   344→   344→    void fetch("/api/notifications/read", {
+   345→   345→      method: "POST",
+   346→   346→      headers: { "content-type": "application/json" },
+   347→   347→      body: JSON.stringify({ recipientType: "RIDER", recipientId: riderKey }),
+   348→   348→    }).catch(() => {});
+   349→   349→  }, [riderKey]);
+   350→   350→
+   351→   351→  // ---- Socket notifications → toast on new arrivals ----
+   352→   352→  const seenNotifIds = useRef<Set<string>>(new Set());
+   353→   353→
+   354→   354→  // Seed the seen set from server notifications so persisted alerts (re-fetched
+   355→   355→  // every 15s) never re-toast.
+   356→   356→  useEffect(() => {
+   357→   357→    for (const n of serverNotifications) seenNotifIds.current.add(n.id);
+   358→   358→  }, [serverNotifications]);
+   359→   359→
+   360→   360→  useEffect(() => {
+   361→   361→    for (const raw of socketNotifications) {
+   362→   362→      const norm = normalizeSocketNotif(raw, riderKey);
+   363→   363→      if (!norm) continue;
+   364→   364→      if (seenNotifIds.current.has(norm.id)) continue;
+   365→   365→      seenNotifIds.current.add(norm.id);
+   366→   366→      toast({ title: norm.title, description: norm.body || undefined });
+   367→   367→    }
+   368→   368→  }, [socketNotifications, riderKey, toast]);
+   369→   369→
+   370→   370→  // ---- Derived data ----
+   371→   371→  const rating = useMemo(() => {
+   372→   372→    if (!riderKey) return null;
+   373→   373→    const match = SEEDED_RIDERS.find((r) => r.phone === riderKey);
+   374→   374→    return match ? match.rating : null;
+   375→   375→  }, [riderKey]);
+   376→   376→
+   377→   377→  const activeOrders = useMemo(
+   378→   378→    () =>
+   379→   379→      orders.filter((o) =>
+   380→   380→        ["PLACED", "CONFIRMED", "DISPATCHED"].includes(
+   381→   381→          (o.status || "").toUpperCase()
+   382→   382→        )
+   383→   383→      ),
+   384→   384→    [orders]
+   385→   385→  );
+   386→   386→
+   387→   387→  const earnedToday = useMemo(() => {
+   388→   388→    const startOfDay = new Date();
+   389→   389→    startOfDay.setHours(0, 0, 0, 0);
+   390→   390→    const cutoff = startOfDay.getTime();
+   391→   391→    return orders
+   392→   392→      .filter((o) => new Date(o.createdAt).getTime() >= cutoff)
+   393→   393→      .reduce((s, o) => s + (o.driverPayout || 0), 0);
+   394→   394→  }, [orders]);
+   395→   395→
+   396→   396→  const totalEarnings = useMemo(
+   397→   397→    () =>
+   398→   398→      orders
+   399→   399→        .filter((o) => (o.status || "").toUpperCase() === "DELIVERED")
+   400→   400→        .reduce((s, o) => s + (o.driverPayout || 0), 0),
+   401→   401→    [orders]
+   402→   402→  );
+   403→   403→
+   404→   404→  const unreadCount = serverNotifications.filter((n) => !n.read).length;
+   405→   405→
+   406→   406→  // Merge server-persisted + socket-delivered notifications (deduped, newest first).
+   407→   407→  const mergedNotifications = useMemo(() => {
+   408→   408→    const map = new Map<string, AppNotification>();
+   409→   409→    for (const n of serverNotifications) map.set(n.id, n);
+   410→   410→    for (const raw of socketNotifications) {
+   411→   411→      const norm = normalizeSocketNotif(raw, riderKey);
+   412→   412→      if (!norm) continue;
+   413→   413→      if (!map.has(norm.id)) map.set(norm.id, norm);
+   414→   414→    }
+   415→   415→    return Array.from(map.values()).sort(
+   416→   416→      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+   417→   417→    );
+   418→   418→  }, [serverNotifications, socketNotifications, riderKey]);
+   419→   419→
+   420→   420→  // =================== Empty state: login gate ===================
+   421→   421→  if (!riderKey || !portal) {
+   422→   422→    return (
+   423→   423→      <div className="mx-auto max-w-md space-y-5">
+   424→   424→        <div className="space-y-1">
+   425→   425→          <div className="flex items-center gap-2">
+   426→   426→            <Bike className="text-brand" size={24} />
+   427→   427→            <h1 className="text-2xl font-extrabold">Rider Portal</h1>
+   428→   428→          </div>
+   429→   429→          <p className="text-sm text-muted-foreground">
+   430→   430→            Sign in with your rider phone to see assigned deliveries, live
+   431→   431→            alerts, and earnings.
+   432→   432→          </p>
+   433→   433→        </div>
+   434→   434→
+   435→   435→        <Card className="space-y-4 p-6">
+   436→   436→          <div className="space-y-2">
+   437→   437→            <Label htmlFor="rider-phone">Rider phone</Label>
+   438→   438→            <Input
+   439→   439→              id="rider-phone"
+   440→   440→              inputMode="tel"
+   441→   441→              autoComplete="tel"
+   442→   442→              placeholder="e.g. 0711 224 118"
+   443→   443→              value={phoneInput}
+   444→   444→              onChange={(e) => setPhoneInput(e.target.value)}
+   445→   445→              onKeyDown={(e) => {
+   446→   446→                if (e.key === "Enter") void handleLogin();
+   447→   447→              }}
+   448→   448→            />
+   449→   449→            <p className="text-[11px] text-muted-foreground">
+   450→   450→              Demo riders: {SEEDED_PHONE_HINTS.join(" · ")}
+   451→   451→            </p>
+   452→   452→          </div>
+   453→   453→
+   454→   454→          {portalError && <p className="text-sm text-destructive">{portalError}</p>}
+   455→   455→
+   456→   456→          <Button
+   457→   457→            className="w-full bg-brand text-white hover:bg-brand-dark"
+   458→   458→            onClick={() => void handleLogin()}
+   459→   459→            disabled={loadingPortal}
+   460→   460→          >
+   461→   461→            {loadingPortal ? (
+   462→   462→              <>
+   463→   463→                <Loader2 size={16} className="animate-spin" /> Signing in…
+   464→   464→              </>
+   465→   465→            ) : (
+   466→   466→              <>
+   467→   467→                <Bike size={16} /> Enter portal
+   468→   468→              </>
+   469→   469→            )}
+   470→   470→          </Button>
+   471→   471→        </Card>
+   472→   472→
+   473→   473→        <p className="text-center text-xs text-muted-foreground">
+   474→   474→          Want to shop instead?{" "}
+   475→   475→          <button
+   476→   476→            type="button"
+   477→   477→            className="font-semibold text-brand underline-offset-2 hover:underline"
+   478→   478→            onClick={() => onNavigate("home")}
+   479→   479→          >
+   480→   480→            Go to store
+   481→   481→          </button>
+   482→   482→        </p>
+   483→   483→      </div>
+   484→   484→    );
+   485→   485→  }
+   486→   486→
+   487→   487→  // =================== Logged-in dashboard ===================
+   488→   488→  return (
+   489→   489→    <div className="space-y-5">
+   490→   490→      {/* Header */}
+   491→   491→      <div className="flex flex-wrap items-center justify-between gap-3">
+   492→   492→        <div className="space-y-1">
+   493→   493→          <div className="flex items-center gap-2">
+   494→   494→            <Bike className="text-brand" size={24} />
+   495→   495→            <h1 className="text-2xl font-extrabold">Rider Portal</h1>
+   496→   496→          </div>
+   497→   497→          <p className="text-sm text-muted-foreground">
+   498→   498→            Welcome back,{" "}
+   499→   499→            <span className="font-semibold text-foreground">
+   500→   500→              {portal.fullName || "Rider"}
+   501→   501→            </span>
+   502→   502→            .
+   503→   503→          </p>
+   504→   504→        </div>
+   505→   505→        <Button variant="outline" size="sm" onClick={handleSignOut}>
+   506→   506→          <LogOut size={14} /> Sign out
+   507→   507→        </Button>
+   508→   508→      </div>
+   509→   509→
+   510→   510→      {/* Online toggle */}
+   511→   511→      <Card className="flex flex-wrap items-center justify-between gap-4 p-4">
+   512→   512→        <div className="flex items-center gap-3">
+   513→   513→          <span
+   514→   514→            className={`h-2.5 w-2.5 shrink-0 rounded-full animate-pulse ${
+   515→   515→              portal.isOnline ? "bg-brand" : "bg-muted-foreground/50"
+   516→   516→            }`}
+   517→   517→            aria-hidden
+   518→   518→          />
+   519→   519→          <div className="space-y-0.5">
+   520→   520→            <div className="flex flex-wrap items-center gap-2">
+   521→   521→              <span className="text-sm font-semibold">
+   522→   522→                {portal.isOnline ? "Online — ready for dispatch" : "Offline"}
+   523→   523→              </span>
+   524→   524→              <Badge
+   525→   525→                className={
+   526→   526→                  portal.isOnline
+   527→   527→                    ? "bg-brand text-white"
+   528→   528→                    : "bg-muted text-muted-foreground"
+   529→   529→                }
+   530→   530→              >
+   531→   531→                {portal.isOnline ? "ONLINE" : "OFFLINE"}
+   532→   532→              </Badge>
+   533→   533→              {portal.isOnline && connected && (
+   534→   534→                <Badge variant="outline" className="border-brand text-brand">
+   535→   535→                  Live
+   536→   536→                </Badge>
+   537→   537→              )}
+   538→   538→            </div>
+   539→   539→            <p className="text-[11px] text-muted-foreground">
+   540→   540→              {portal.isOnline
+   541→   541→                ? "We'll ping you the moment a delivery is assigned."
+   542→   542→                : "Toggle on to receive deliveries."}
+   543→   543→            </p>
+   544→   544→          </div>
+   545→   545→        </div>
+   546→   546→        <div className="flex items-center gap-2">
+   547→   547→          <Label
+   548→   548→            htmlFor="online-toggle"
+   549→   549→            className="text-[11px] text-muted-foreground"
+   550→   550→          >
+   551→   551→            {togglingOnline ? "Updating…" : ""}
+   552→   552→          </Label>
+   553→   553→          <Switch
+   554→   554→            id="online-toggle"
+   555→   555→            checked={portal.isOnline}
+   556→   556→            onCheckedChange={(v) => void toggleOnline(v)}
+   557→   557→            disabled={togglingOnline}
+   558→   558→            className="data-[state=checked]:bg-brand"
+   559→   559→          />
+   560→   560→        </div>
+   561→   561→      </Card>
+   562→   562→
+   563→   563→      {/* Presence strip */}
+   564→   564→      {portal.isOnline && (
+   565→   565→        <div className="flex flex-wrap items-center gap-1.5">
+   566→   566→          <span className="text-[11px] text-muted-foreground">Online now:</span>
+   567→   567→          {presence
+   568→   568→            .filter((p) => !(p.kind === "rider" && p.id === riderKey))
+   569→   569→            .slice(0, 10)
+   570→   570→            .map((p, i) => (
+   571→   571→              <Badge
+   572→   572→                key={`${p.kind}-${p.id}-${i}`}
+   573→   573→                variant="outline"
+   574→   574→                className={
+   575→   575→                  p.kind === "rider"
+   576→   576→                    ? "border-brand/40 text-brand"
+   577→   577→                    : p.kind === "vendor"
+   578→   578→                      ? "border-gold/40 text-gold"
+   579→   579→                      : "text-muted-foreground"
+   580→   580→                }
+   581→   581→              >
+   582→   582→                {p.kind === "rider" ? "🛵" : p.kind === "vendor" ? "🏪" : "🛡️"}{" "}
+   583→   583→                {p.name}
+   584→   584→              </Badge>
+   585→   585→            ))}
+   586→   586→          {presence.filter((p) => !(p.kind === "rider" && p.id === riderKey))
+   587→   587→            .length === 0 && (
+   588→   588→            <span className="text-[11px] text-muted-foreground">
+   589→   589→              just you for now
+   590→   590→            </span>
+   591→   591→          )}
+   592→   592→        </div>
+   593→   593→      )}
+   594→   594→
+   595→   595→      {/* Profile + Earnings */}
+   596→   596→      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+   597→   597→        {/* Profile */}
+   598→   598→        <Card className="space-y-3 p-5 lg:col-span-2">
+   599→   599→          <div className="flex items-center justify-between">
+   600→   600→            <div className="flex items-center gap-2">
+   601→   601→              <User className="text-brand" size={18} />
+   602→   602→              <h2 className="text-sm font-bold">Profile</h2>
+   603→   603→            </div>
+   604→   604→            {rating !== null && (
+   605→   605→              <span className="inline-flex items-center gap-1 text-sm">
+   606→   606→                <Star size={14} className="fill-gold text-gold" />
+   607→   607→                <span className="font-bold">{rating.toFixed(1)}</span>
+   608→   608→                <span className="text-[11px] text-muted-foreground">
+   609→   609→                  rider rating
+   610→   610→                </span>
+   611→   611→              </span>
+   612→   612→            )}
+   613→   613→          </div>
+   614→   614→          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   615→   615→            <div className="space-y-0.5">
+   616→   616→              <Label className="text-[11px] text-muted-foreground">Full name</Label>
+   617→   617→              <div className="text-sm font-semibold">
+   618→   618→                {portal.fullName || "—"}
+   619→   619→              </div>
+   620→   620→            </div>
+   621→   621→            <div className="space-y-0.5">
+   622→   622→              <Label className="text-[11px] text-muted-foreground">Phone</Label>
+   623→   623→              <div className="inline-flex items-center gap-1 text-sm font-semibold">
+   624→   624→                <Phone size={12} className="text-muted-foreground" />
+   625→   625→                {portal.phone}
+   626→   626→              </div>
+   627→   627→            </div>
+   628→   628→            <div className="space-y-1 sm:col-span-2">
+   629→   629→              <Label
+   630→   630→                htmlFor="plate"
+   631→   631→                className="text-[11px] text-muted-foreground"
+   632→   632→              >
+   633→   633→                Number plate
+   634→   634→                {savingPlate && (
+   635→   635→                  <span className="ml-1 text-muted-foreground">· saving…</span>
+   636→   636→                )}
+   637→   637→              </Label>
+   638→   638→              <Input
+   639→   639→                id="plate"
+   640→   640→                value={plateDraft}
+   641→   641→                onChange={(e) => setPlateDraft(e.target.value)}
+   642→   642→                onBlur={() => void savePlate()}
+   643→   643→                placeholder="e.g. KMEA 224B"
+   644→   644→                className="font-mono uppercase"
+   645→   645→              />
+   646→   646→            </div>
+   647→   647→            <div className="space-y-0.5 sm:col-span-2">
+   648→   648→              <Label className="text-[11px] text-muted-foreground">
+   649→   649→                Last seen
+   650→   650→              </Label>
+   651→   651→              <div className="inline-flex items-center gap-1 text-sm">
+   652→   652→                <Clock size={12} className="text-muted-foreground" />
+   653→   653→                {portal.lastSeen
+   654→   654→                  ? new Date(portal.lastSeen).toLocaleString("en-KE", {
+   655→   655→                      day: "numeric",
+   656→   656→                      month: "short",
+   657→   657→                      hour: "2-digit",
+   658→   658→                      minute: "2-digit",
+   659→   659→                    })
+   660→   660→                  : "—"}
+   661→   661→              </div>
+   662→   662→            </div>
+   663→   663→          </div>
+   664→   664→        </Card>
+   665→   665→
+   666→   666→        {/* Earnings summary */}
+   667→   667→        <Card className="space-y-2 border-brand/30 bg-brand-light p-5">
+   668→   668→          <div className="flex items-center gap-2">
+   669→   669→            <Wallet className="text-brand" size={18} />
+   670→   670→            <h2 className="text-sm font-bold text-brand">Earnings</h2>
+   671→   671→          </div>
+   672→   672→          <div>
+   673→   673→            <div className="text-[11px] text-muted-foreground">
+   674→   674→              Lifetime payout (delivered)
+   675→   675→            </div>
+   676→   676→            <div className="text-2xl font-extrabold text-brand">
+   677→   677→              {KES(totalEarnings)}
+   678→   678→            </div>
+   679→   679→          </div>
+   680→   680→          <div className="flex items-center justify-between text-[11px]">
+   681→   681→            <span className="text-muted-foreground">Earned today</span>
+   682→   682→            <span className="font-semibold text-foreground">
+   683→   683→              {KES(earnedToday)}
+   684→   684→            </span>
+   685→   685→          </div>
+   686→   686→          <div className="inline-flex items-center gap-1 rounded-md bg-white/60 px-2 py-1 text-[11px] text-brand">
+   687→   687→            <Zap size={11} />
+   688→   688→            10% platform levy deducted
+   689→   689→          </div>
+   690→   690→        </Card>
+   691→   691→      </div>
+   692→   692→
+   693→   693→      {/* Deliveries + Notifications */}
+   694→   694→      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+   695→   695→        {/* Assigned deliveries */}
+   696→   696→        <Card className="space-y-3 p-4">
+   697→   697→          <div className="flex flex-wrap items-center justify-between gap-2">
+   698→   698→            <div className="flex items-center gap-2">
+   699→   699→              <Truck className="text-brand" size={18} />
+   700→   700→              <h2 className="text-sm font-bold">Assigned deliveries</h2>
+   701→   701→            </div>
+   702→   702→            <Badge className="bg-brand-light text-brand">
+   703→   703→              {activeOrders.length} active · {KES(earnedToday)} today
+   704→   704→            </Badge>
+   705→   705→          </div>
+   706→   706→          {orders.length === 0 ? (
+   707→   707→            <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-10 text-center">
+   708→   708→              <div className="text-4xl" aria-hidden>
+   709→   709→                🛵
+   710→   710→              </div>
+   711→   711→              <div className="mt-2 text-sm font-semibold">
+   712→   712→                No deliveries yet
+   713→   713→              </div>
+   714→   714→              <p className="text-xs text-muted-foreground">
+   715→   715→                When an order is dispatched to you, it'll show up here
+   716→   716→                automatically.
+   717→   717→              </p>
+   718→   718→            </div>
+   719→   719→          ) : (
+   720→   720→            <div className="wb-scroll max-h-96 space-y-2 overflow-y-auto pr-1">
+   721→   721→              {orders.map((o) => {
+   722→   722→                const id = o.id.slice(-8).toUpperCase();
+   723→   723→                return (
+   724→   724→                  <div
+   725→   725→                    key={o.id}
+   726→   726→                    className="space-y-2 rounded-xl border border-border bg-card p-3"
+   727→   727→                  >
+   728→   728→                    <div className="flex items-center justify-between">
+   729→   729→                      <span className="font-mono text-xs font-semibold">
+   730→   730→                        #{id}
+   731→   731→                      </span>
+   732→   732→                      <span
+   733→   733→                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${statusPillClass(
+   734→   734→                          o.status
+   735→   735→                        )}`}
+   736→   736→                      >
+   737→   737→                        {o.status}
+   738→   738→                      </span>
+   739→   739→                    </div>
+   740→   740→                    <div className="flex items-center gap-2">
+   741→   741→                      <span className="text-lg" aria-hidden>
+   742→   742→                        {o.vendor.emoji}
+   743→   743→                      </span>
+   744→   744→                      <div className="min-w-0 flex-1">
+   745→   745→                        <div className="truncate text-sm font-semibold">
+   746→   746→                          {o.customerName}
+   747→   747→                        </div>
+   748→   748→                        <div className="truncate text-[11px] text-muted-foreground">
+   749→   749→                          {o.vendor.name}
+   750→   750→                        </div>
+   751→   751→                      </div>
+   752→   752→                      <div className="text-right">
+   753→   753→                        <div className="text-sm font-extrabold text-brand">
+   754→   754→                          {KES(o.total)}
+   755→   755→                        </div>
+   756→   756→                        <div className="text-[10px] text-muted-foreground">
+   757→   757→                          order total
+   758→   758→                        </div>
+   759→   759→                      </div>
+   760→   760→                    </div>
+   761→   761→                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+   762→   762→                      <span className="inline-flex items-center gap-1">
+   763→   763→                        <MapPin size={11} /> {o.location}
+   764→   764→                      </span>
+   765→   765→                    </div>
+   766→   766→                    <div className="flex items-center justify-between gap-2 border-t border-border pt-2 text-[11px]">
+   767→   767→                      <span className="text-muted-foreground">Your payout</span>
+   768→   768→                      <span className="font-bold text-mpesa">
+   769→   769→                        {KES(o.driverPayout || 0)}
+   770→   770→                      </span>
+   771→   771→                    </div>
+   772→   772→                    <div className="flex items-center justify-between gap-2 text-[11px]">
+   773→   773→                      <span className="text-muted-foreground">
+   774→   774→                        Platform levy (10%)
+   775→   775→                      </span>
+   776→   776→                      <span className="text-muted-foreground">
+   777→   777→                        {KES(o.driverLevy || 0)}
+   778→   778→                      </span>
+   779→   779→                    </div>
+   780→   780→                  </div>
+   781→   781→                );
+   782→   782→              })}
+   783→   783→            </div>
+   784→   784→          )}
+   785→   785→        </Card>
+   786→   786→
+   787→   787→        {/* Notifications feed */}
+   788→   788→        <Card className="space-y-3 p-4">
+   789→   789→          <div className="flex flex-wrap items-center justify-between gap-2">
+   790→   790→            <div className="flex items-center gap-2">
+   791→   791→              <Bell className="text-brand" size={18} />
+   792→   792→              <h2 className="text-sm font-bold">Alerts</h2>
+   793→   793→              {unreadCount > 0 && (
+   794→   794→                <Badge className="bg-gold text-white">{unreadCount} new</Badge>
+   795→   795→              )}
+   796→   796→            </div>
+   797→   797→            {unreadCount > 0 && (
+   798→   798→              <Button variant="ghost" size="sm" onClick={markAllRead}>
+   799→   799→                <CheckCheck size={14} /> Mark all read
+   800→   800→              </Button>
+   801→   801→            )}
+   802→   802→          </div>
+   803→   803→          {mergedNotifications.length === 0 ? (
+   804→   804→            <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-10 text-center">
+   805→   805→              <div className="text-4xl" aria-hidden>
+   806→   806→                🔔
+   807→   807→              </div>
+   808→   808→              <div className="mt-2 text-sm font-semibold">No alerts yet</div>
+   809→   809→              <p className="text-xs text-muted-foreground">
+   810→   810→                Dispatch alerts and order updates will appear here in real time.
+   811→   811→              </p>
+   812→   812→            </div>
+   813→   813→          ) : (
+   814→   814→            <div className="wb-scroll max-h-96 space-y-2 overflow-y-auto pr-1">
+   815→   815→              {mergedNotifications.map((n) => (
+   816→   816→                <button
+   817→   817→                  key={n.id}
+   818→   818→                  type="button"
+   819→   819→                  onClick={() => markRead(n)}
+   820→   820→                  className={`w-full rounded-xl border p-3 text-left transition-colors ${
+   821→   821→                    n.read
+   822→   822→                      ? "border-border bg-card"
+   823→   823→                      : "border-brand/40 bg-brand-light/40 hover:bg-brand-light"
+   824→   824→                  }`}
+   825→   825→                >
+   826→   826→                  <div className="flex items-center justify-between gap-2">
+   827→   827→                    <div className="flex min-w-0 items-center gap-2">
+   828→   828→                      {!n.read && (
+   829→   829→                        <span
+   830→   830→                          className="h-2 w-2 shrink-0 rounded-full bg-brand"
+   831→   831→                          aria-label="Unread"
+   832→   832→                        />
+   833→   833→                      )}
+   834→   834→                      <span className="truncate text-sm font-semibold">
+   835→   835→                        {n.title}
+   836→   836→                      </span>
+   837→   837→                    </div>
+   838→   838→                    <span className="shrink-0 text-[10px] text-muted-foreground">
+   839→   839→                      {relativeTime(n.createdAt)}
+   840→   840→                    </span>
+   841→   841→                  </div>
+   842→   842→                  {n.body && (
+   843→   843→                    <p className="mt-1 line-clamp-2 text-[12px] text-muted-foreground">
+   844→   844→                      {n.body}
+   845→   845→                    </p>
+   846→   846→                  )}
+   847→   847→                </button>
+   848→   848→              ))}
+   849→   849→            </div>
+   850→   850→          )}
+   851→   851→        </Card>
+   852→   852→      </div>
+   853→   853→    </div>
+   854→   854→  );
+   855→   855→}
+   856→   856→
+   857→   857→export default RiderPortalPage;
+   858→   858→
