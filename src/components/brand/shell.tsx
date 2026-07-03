@@ -7,6 +7,7 @@ import {
   ClipboardList,
   LifeBuoy,
   MessageCircle,
+  Phone,
   Store,
   Bike,
   ShoppingBag,
@@ -256,10 +257,16 @@ export function Footer({ onNavigate }: { onNavigate: (p: PageId) => void }) {
             <h4 className="text-sm font-semibold text-foreground">Support</h4>
             <div className="flex flex-col gap-2">
               <button
+                onClick={() => onNavigate("faqs")}
+                className="flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-brand"
+              >
+                <LifeBuoy size={14} /> FAQs
+              </button>
+              <button
                 onClick={() => onNavigate("support")}
                 className="flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-brand"
               >
-                <LifeBuoy size={14} /> Help centre
+                <MessageCircle size={14} /> Help centre
               </button>
               <Link
                 href="https://wa.me/254731371521"
@@ -267,7 +274,7 @@ export function Footer({ onNavigate }: { onNavigate: (p: PageId) => void }) {
                 rel="noreferrer"
                 className="flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-brand"
               >
-                <MessageCircle size={14} /> Chat on WhatsApp
+                <Phone size={14} /> Chat on WhatsApp
               </Link>
             </div>
           </div>
@@ -324,11 +331,35 @@ export function Footer({ onNavigate }: { onNavigate: (p: PageId) => void }) {
           </div>
         </div>
 
-        <div className="mt-8 flex flex-col items-center justify-between gap-2 border-t border-border/70 pt-5 text-xs text-muted-foreground sm:flex-row">
-          <span>© {new Date().getFullYear()} WeBizzle. All rights reserved.</span>
-          <span className="flex items-center gap-1.5">
-            Made in Kenya <span aria-hidden>🇰🇪</span>
-          </span>
+        <div className="mt-8 border-t border-border/70 pt-5">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <button
+              onClick={() => onNavigate("privacy")}
+              className="hover:text-foreground transition-colors"
+            >
+              Privacy Policy
+            </button>
+            <span className="text-border">|</span>
+            <button
+              onClick={() => onNavigate("terms")}
+              className="hover:text-foreground transition-colors"
+            >
+              Terms &amp; Conditions
+            </button>
+            <span className="text-border">|</span>
+            <button
+              onClick={() => onNavigate("faqs")}
+              className="hover:text-foreground transition-colors"
+            >
+              FAQs
+            </button>
+          </div>
+          <div className="mt-3 flex flex-col items-center justify-between gap-2 text-xs text-muted-foreground sm:flex-row">
+            <span>© {new Date().getFullYear()} WeBizzle. All rights reserved.</span>
+            <span className="flex items-center gap-1.5">
+              Made in Kenya <span aria-hidden>🇰🇪</span>
+            </span>
+          </div>
         </div>
       </div>
     </footer>

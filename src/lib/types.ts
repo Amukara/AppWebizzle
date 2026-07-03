@@ -227,7 +227,10 @@ export type PageId =
   | "receipts"
   | "admin"
   | "vendor-portal"
-  | "rider-portal";
+  | "rider-portal"
+  | "privacy"
+  | "terms"
+  | "faqs";
 
 // ---- Vendor / rider portal ----
 export type VendorPortal = {

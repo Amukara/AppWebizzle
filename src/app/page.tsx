@@ -24,6 +24,11 @@ import {
   VendorSignupPage,
   RiderSignupPage,
 } from "@/components/brand/pages/support-signup";
+import {
+  PrivacyPage,
+  TermsPage,
+  FaqsPage,
+} from "@/components/brand/pages/legal";
 import type {
   Cart,
   CartItem,
@@ -277,6 +282,10 @@ export default function App() {
 
         {page === "vendor-signup" && <VendorSignupPage onNavigate={navigate} />}
         {page === "rider-signup" && <RiderSignupPage onNavigate={navigate} />}
+
+        {page === "privacy" && <PrivacyPage onNavigate={navigate} />}
+        {page === "terms" && <TermsPage onNavigate={navigate} />}
+        {page === "faqs" && <FaqsPage onNavigate={navigate} />}
       </main>
 
       <Footer onNavigate={navigate} />
