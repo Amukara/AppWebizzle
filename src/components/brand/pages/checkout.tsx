@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Wallet,
   ChevronRight,
@@ -19,6 +19,8 @@ import { Label } from "@/components/ui/label";
 import { KES } from "../logo";
 import { computeFees, PLATFORM_FEE_THRESHOLD } from "@/lib/fees";
 import { LocationPicker } from "../map/LocationPicker";
+import { LocationPrompt } from "../ui/location-prompt";
+import { useGeolocation } from "@/hooks/use-geolocation";
 import { getCustomerProfile, saveCustomerProfile } from "@/lib/customer";
 import type { Cart, Order, PageId } from "@/lib/types";
 
@@ -48,6 +50,29 @@ export function CheckoutPage({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Location services for checkout
+  const geo = useGeolocation();
+  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
+
+  // Prompt location on checkout mount if no saved coords
+  useEffect(() => {
+    if (!cart) return;
+    if (geo.status === "idle" && !coords) {
+      // Small delay so the checkout UI renders first
+      const t = setTimeout(() => setShowLocationPrompt(true), 600);
+      return () => clearTimeout(t);
+    }
+  }, [cart, geo.status, coords]);
+
+  // Auto-fill coords when location is granted
+  useEffect(() => {
+    if (geo.status === "granted" && geo.coords) {
+      setCoords(geo.coords);
+      saveCustomerProfile({ lat: geo.coords.lat, lng: geo.coords.lng });
+      setShowLocationPrompt(false);
+    }
+  }, [geo.status, geo.coords]);
 
   if (!cart) {
     return (
@@ -320,6 +345,21 @@ export function CheckoutPage({
           </Card>
         </div>
       </div>
+
+      {/* Location prompt for checkout */}
+      <LocationPrompt
+        open={showLocationPrompt}
+        status={geo.status}
+        error={geo.error}
+        reason="checkout"
+        onEnable={() => {
+          geo.requestLocation();
+        }}
+        onDismiss={() => {
+          setShowLocationPrompt(false);
+          geo.dismiss();
+        }}
+      />
     </div>
   );
 }

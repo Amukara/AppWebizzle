@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Search,
   ShoppingBasket,
@@ -18,7 +18,9 @@ import { KES } from "../logo";
 import { RatingStars } from "../ui";
 import { SavingsWidget } from "./savings";
 import { ProductDetail, TrendBadge } from "./product-detail";
-import { getCustomerProfile } from "@/lib/customer";
+import { LocationPrompt } from "../ui/location-prompt";
+import { useGeolocation } from "@/hooks/use-geolocation";
+import { getCustomerProfile, saveCustomerProfile } from "@/lib/customer";
 import type { PageId, Product, Vendor } from "@/lib/types";
 
 const CATEGORIES = [
@@ -57,6 +59,46 @@ export function HomePage({
   const [client] = useState(() => getCustomerProfile());
   const knownClient = Boolean(client.name && client.phone);
 
+  // Location services
+  const geo = useGeolocation();
+  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
+  const locationPromptReason = useRef<"search" | "checkout">("search");
+  const hasPromptedSearch = useRef(false);
+
+  // When location is granted, persist coords to customer profile
+  const handleLocationGranted = useCallback(
+    (coords: { lat: number; lng: number }) => {
+      saveCustomerProfile({ lat: coords.lat, lng: coords.lng });
+    },
+    []
+  );
+
+  // Auto-save coords when status changes to granted
+  useEffect(() => {
+    if (geo.status === "granted" && geo.coords) {
+      handleLocationGranted(geo.coords);
+      setShowLocationPrompt(false);
+    }
+  }, [geo.status, geo.coords, handleLocationGranted]);
+
+  // Prompt location on first search keystroke
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearch(value);
+      // Trigger location prompt on first real keystroke if not already granted/prompted
+      if (
+        value.length > 0 &&
+        !hasPromptedSearch.current &&
+        geo.status === "idle"
+      ) {
+        hasPromptedSearch.current = true;
+        locationPromptReason.current = "search";
+        setShowLocationPrompt(true);
+      }
+    },
+    [setSearch, geo.status]
+  );
+
   const openDetail = (p: Product) => {
     setDetail(p);
     setDetailOpen(true);
@@ -94,7 +136,7 @@ export function HomePage({
             <Search size={18} className="ml-2 text-muted-foreground" />
             <input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search sugar, milk, paracetamol…"
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               aria-label="Search products"
@@ -358,6 +400,21 @@ export function HomePage({
           </section>
         </>
       )}
+
+      {/* Location prompt for search */}
+      <LocationPrompt
+        open={showLocationPrompt}
+        status={geo.status}
+        error={geo.error}
+        reason={locationPromptReason.current}
+        onEnable={() => {
+          geo.requestLocation();
+        }}
+        onDismiss={() => {
+          setShowLocationPrompt(false);
+          geo.dismiss();
+        }}
+      />
 
       <ProductDetail
         product={detail}
