@@ -312,12 +312,32 @@ export async function testAirtableConnection(): Promise<{ ok: boolean; tables?: 
     }
 
     // Schema API also failed — likely a base access issue
+    // Try to get the exact error for better debugging
+    const schemaErr = await schemaRes.json().catch(() => ({}));
+    const errType = schemaErr?.error?.type ?? "UNKNOWN";
+
+    let fixSteps: string;
+    if (errType === "INVALID_PERMISSIONS_OR_MODEL_NOT_FOUND") {
+      fixSteps =
+        `1. Go to https://airtable.com/create/tokens\n` +
+        `2. Find your token and click "Edit"\n` +
+        `3. Under "Access", change from "Selected bases" to "All current and future bases in all current and future workspaces"\n` +
+        `4. Under "Scopes", ensure these are checked:\n` +
+        `   - data.records:read\n` +
+        `   - data.records:write\n` +
+        `   - schema.bases:read\n` +
+        `   - schema.bases:write\n` +
+        `5. Click "Save token"`;
+    } else {
+      fixSteps =
+        `Go to https://airtable.com/create/tokens → edit this token → under "Access" ensure ` +
+        `"All current and future bases in all current and future workspaces" is selected, ` +
+        `and scopes include "data.records:read" + "data.records:write" + "schema.bases:write".`;
+    }
+
     return {
       ok: false,
-      error: `Token is valid (${me.email ?? me.id}) but cannot access base "${getBaseId()}". ` +
-        `Go to airtable.com/create/tokens → edit this token → under "Access" ensure ` +
-        `"All current and future bases in all current and future workspaces" is selected, ` +
-        `and scopes include "data.records:read" + "data.records:write" + "schema.bases:write".`,
+      error: `Token valid (${me.email ?? me.id}) but cannot access base "${getBaseId()}".\n\n${fixSteps}`,
     };
   } catch (e) {
     return { ok: false, error: String(e) };

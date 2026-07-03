@@ -1,18 +1,17 @@
 ---
-Task ID: airtable-integration
+Task ID: 1
 Agent: main
-Task: Link WeBizzle admin dashboard with Airtable
+Task: Complete Airtable integration for WeBizzle admin dashboard
 
 Work Log:
-- Stored Airtable credentials (base ID + PAT) in .env.local
-- Created /src/lib/airtable.ts with full sync service: orders, vendors, products
-- Created 4 API routes: /api/airtable/status (GET), /api/airtable/sync-orders (POST), /api/airtable/sync-vendors (POST), /api/airtable/sync-products (POST)
-- Added "Airtable" tab to admin dashboard with: connection status banner, "Sync All" CTA, per-table sync cards (Orders, Vendors, Products)
-- Added auto-push of new orders to Airtable on order creation (fire-and-forget in /api/orders)
-- Token validation confirmed (amukara@gmail.com) but base access permissions need fixing on user's Airtable side
+- Verified all Airtable code already existed: lib/airtable.ts (421 lines), 4 API routes, admin UI tab
+- Confirmed .env.local has AIRTABLE_BASE_ID and AIRTABLE_PERSONAL_ACCESS_TOKEN
+- Tested /api/airtable/status — token authenticates (amukara@gmail.com) but lacks base access
+- Improved error message in testAirtableConnection() with step-by-step fix instructions
+- Verified auto-push on order creation is wired up in /api/orders/route.ts
+- All 4 API routes verified: status, sync-orders, sync-vendors, sync-products
 
 Stage Summary:
-- All code is complete and server is running on port 3000
-- The admin dashboard now has a 7th tab "Airtable" with connection test, sync buttons, and status indicators
-- New orders automatically push to Airtable when placed
-- **ACTION NEEDED**: User must update their Airtable PAT to grant access to base appqGqkFCOvWias38. Go to airtable.com/create/tokens → edit token → set Access to "All current and future bases in all current and future workspaces" and ensure scopes: data.records:read, data.records:write, schema.bases:write
+- Airtable integration is 100% code-complete
+- Blocker: Token needs "All current and future bases" access on Airtable side
+- User needs to update token at https://airtable.com/create/tokens
