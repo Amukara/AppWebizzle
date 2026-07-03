@@ -20,6 +20,10 @@ import {
   ImageOff,
   Pause,
   Play,
+  Database,
+  ArrowUpFromLine,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -1438,6 +1442,198 @@ function ReceiptsTab({
   );
 }
 
+// ---------- Airtable Sync Tab ----------
+function AirtableTab() {
+  const [connected, setConnected] = React.useState<boolean | null>(null);
+  const [baseName, setBaseName] = React.useState<string>("");
+  const [syncing, setSyncing] = React.useState<string | null>(null);
+  const [results, setResults] = React.useState<Record<string, { synced: number; created: number }>>({});
+  const [error, setError] = React.useState<string | null>(null);
+
+  const checkConnection = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/airtable/status");
+      const data = await res.json();
+      setConnected(data.connected);
+      if (data.tables?.length) setBaseName(data.tables.join(", "));
+      else if (data.message) setBaseName(data.message);
+      if (!data.connected) setError(data.error ?? "Connection failed");
+      else setError(null);
+    } catch {
+      setConnected(false);
+      setError("Could not reach Airtable API");
+    }
+  }, []);
+
+  React.useEffect(() => {
+    checkConnection();
+  }, [checkConnection]);
+
+  const sync = async (key: string, endpoint: string) => {
+    setSyncing(key);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setResults((prev) => ({ ...prev, [key]: { synced: data.synced, created: data.created } }));
+      } else {
+        setError(data.error ?? "Sync failed");
+      }
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setSyncing(null);
+    }
+  };
+
+  const syncAll = async () => {
+    setSyncing("all");
+    setError(null);
+    const endpoints = [
+      ["orders", "/api/airtable/sync-orders"],
+      ["vendors", "/api/airtable/sync-vendors"],
+      ["products", "/api/airtable/sync-products"],
+    ] as const;
+    for (const [key, endpoint] of endpoints) {
+      try {
+        const res = await fetch(endpoint, { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          setResults((prev) => ({ ...prev, [key]: { synced: data.synced, created: data.created } }));
+        } else {
+          setError(data.error ?? `${key} sync failed`);
+        }
+      } catch {
+        setError(`Failed to sync ${key}`);
+      }
+    }
+    setSyncing(null);
+  };
+
+  const cards: { key: string; label: string; emoji: string; desc: string; endpoint: string; color: string }[] = [
+    { key: "orders", label: "Orders", emoji: "📦", desc: "Customer orders, items, status, M-Pesa codes, rider info, fees", endpoint: "/api/airtable/sync-orders", color: "border-blue-200 bg-blue-50/50" },
+    { key: "vendors", label: "Vendors", emoji: "🏪", desc: "Vendor names, types, ratings, delivery fees, ETAs, locations", endpoint: "/api/airtable/sync-vendors", color: "border-amber-200 bg-amber-50/50" },
+    { key: "products", label: "Products", emoji: "🏷️", desc: "Product catalogue with categories, base prices, vendor counts", endpoint: "/api/airtable/sync-products", color: "border-green-200 bg-green-50/50" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Connection status banner */}
+      <div className={cn(
+        "flex items-center gap-3 rounded-xl border p-4",
+        connected === true
+          ? "border-green-200 bg-green-50"
+          : connected === false
+            ? "border-red-200 bg-red-50"
+            : "border-border bg-muted/30"
+      )}>
+        {connected === null ? (
+          <Loader2 size={20} className="animate-spin text-muted-foreground" />
+        ) : connected ? (
+          <Wifi size={20} className="text-green-600" />
+        ) : (
+          <WifiOff size={20} className="text-red-500" />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className={cn(
+            "text-sm font-semibold",
+            connected === true ? "text-green-800" : connected === false ? "text-red-700" : "text-muted-foreground"
+          )}>
+            {connected === null ? "Checking connection…" : connected ? `Connected to Airtable${baseName ? ` — ${baseName}` : ""}` : "Not connected"}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {connected === true
+              ? "Your base is reachable. Sync data below."
+              : connected === false
+                ? error ?? "Check your Airtable token and base ID in .env.local"
+                : "Testing connection to your Airtable base…"}
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={checkConnection} disabled={connected === null}>
+          <RefreshCw size={13} className={cn(connected === null && "animate-spin")} />
+          Test
+        </Button>
+      </div>
+
+      {/* Sync All CTA */}
+      <Card className={cn("border-brand/30 p-5")}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Database size={18} className="text-brand" />
+              <h3 className="font-bold">Sync all data to Airtable</h3>
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Push all orders, vendors, and products to your Airtable base. Each sync replaces the previous data.
+            </p>
+          </div>
+          <Button
+            className="bg-brand text-white hover:bg-brand-dark shrink-0"
+            disabled={!connected || !!syncing}
+            onClick={syncAll}
+          >
+            {syncing === "all" ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <ArrowUpFromLine size={16} />
+            )}
+            Sync All
+          </Button>
+        </div>
+      </Card>
+
+      {/* Per-table sync cards */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {cards.map((c) => {
+          const r = results[c.key];
+          const isSyncing = syncing === c.key || syncing === "all";
+          return (
+            <Card key={c.key} className={cn("p-4", c.color)}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-2xl">{c.emoji}</span>
+                {r && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                    <CheckCircle2 size={10} /> {r.synced} rows
+                  </span>
+                )}
+              </div>
+              <h4 className="mt-2 text-sm font-bold">{c.label}</h4>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 w-full"
+                disabled={!connected || !!syncing}
+                onClick={() => sync(c.key, c.endpoint)}
+              >
+                {isSyncing ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <ArrowUpFromLine size={14} />
+                )}
+                Sync {c.label}
+              </Button>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Info note */}
+      <div className="rounded-xl bg-muted/60 p-3 text-center text-[11px] text-muted-foreground">
+        <Database size={12} className="mr-1 inline text-brand" />
+        Airtable syncs are one-way (WeBizzle → Airtable). New orders are also auto-pushed when placed.
+        <br />
+        Each full sync replaces all rows in the target table to keep data in sync.
+      </div>
+
+      {error && !connected && (
+        <SectionError message={error} />
+      )}
+    </div>
+  );
+}
+
 // ---------- Main component ----------
 export function AdminPage() {
   // `authed` is a boolean mirror of the server-side cookie session. The cookie
@@ -1926,6 +2122,10 @@ export function AdminPage() {
             <Receipt size={14} />
             Receipts
           </TabsTrigger>
+          <TabsTrigger value="airtable" className="gap-1.5">
+            <Database size={14} />
+            Airtable
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -1985,6 +2185,10 @@ export function AdminPage() {
             onDecide={decideReceipt}
             decidingId={decidingId}
           />
+        </TabsContent>
+
+        <TabsContent value="airtable" className="mt-4">
+          <AirtableTab />
         </TabsContent>
       </Tabs>
     </div>

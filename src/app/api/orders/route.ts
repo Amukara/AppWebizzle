@@ -161,6 +161,28 @@ export async function POST(req: Request) {
     itemCount: body.items.length,
   });
 
+  // Auto-push new order to Airtable (fire-and-forget, never blocks the response).
+  const { pushSingleOrderToAirtable } = await import("@/lib/airtable");
+  void pushSingleOrderToAirtable({
+    id: order.id,
+    customerName: order.customerName,
+    phone: order.phone,
+    location: order.location,
+    vendor: { name: order.vendor.name, emoji: order.vendor.emoji, type: order.vendor.type },
+    items: body.items,
+    subtotal: order.subtotal,
+    deliveryFee: order.deliveryFee,
+    total: order.total,
+    status: order.status,
+    mpesaCode: order.mpesaCode,
+    riderName: order.riderName,
+    riderPlate: order.riderPlate,
+    saved: order.saved,
+    platformFee: order.platformFee,
+    driverLevy: order.driverLevy,
+    createdAt: order.createdAt.toISOString(),
+  });
+
   return NextResponse.json({
     order: {
       id: order.id,
