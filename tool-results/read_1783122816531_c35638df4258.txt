@@ -1,0 +1,921 @@
+     1→"use client";
+     2→
+     3→import { ArrowLeft } from "lucide-react";
+     4→import { Button } from "@/components/ui/button";
+     5→import { Card } from "@/components/ui/card";
+     6→
+     7→/* ================================================================
+     8→   SHARED LAYOUT
+     9→   ================================================================ */
+    10→function LegalLayout({
+    11→  title,
+    12→  lastUpdated,
+    13→  children,
+    14→  onBack,
+    15→}: {
+    16→  title: string;
+    17→  lastUpdated: string;
+    18→  children: React.ReactNode;
+    19→  onBack?: () => void;
+    20→}) {
+    21→  return (
+    22→    <div className="mx-auto max-w-3xl space-y-6 pb-8">
+    23→      <div className="flex items-center gap-3">
+    24→        {onBack && (
+    25→          <Button variant="ghost" size="sm" onClick={onBack}>
+    26→            <ArrowLeft size={14} /> Back
+    27→          </Button>
+    28→        )}
+    29→      </div>
+    30→      <div>
+    31→        <h1 className="text-2xl font-extrabold text-foreground sm:text-3xl">{title}</h1>
+    32→        <p className="mt-1 text-xs text-muted-foreground">Last updated: {lastUpdated}</p>
+    33→      </div>
+    34→      <div className="space-y-5 text-sm leading-relaxed text-foreground/90">{children}</div>
+    35→    </div>
+    36→  );
+    37→}
+    38→
+    39→function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
+    40→  return (
+    41→    <section id={id} className="space-y-2 scroll-mt-20">
+    42→      <h2 className="text-base font-bold text-foreground">{title}</h2>
+    43→      {children}
+    44→    </section>
+    45→  );
+    46→}
+    47→
+    48→function SubSection({ title, children }: { title: string; children: React.ReactNode }) {
+    49→  return (
+    50→    <div className="space-y-1 pl-2 border-l-2 border-brand/20">
+    51→      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+    52→      {children}
+    53→    </div>
+    54→  );
+    55→}
+    56→
+    57→function P({ children }: { children: React.ReactNode }) {
+    58→  return <p className="text-sm leading-relaxed text-foreground/85">{children}</p>;
+    59→}
+    60→
+    61→function Bullets({ items }: { items: React.ReactNode[] }) {
+    62→  return (
+    63→    <ul className="ml-4 list-disc space-y-1 text-sm text-foreground/85">
+    64→      {items.map((item, i) => (
+    65→        <li key={i}>{item}</li>
+    66→      ))}
+    67→    </ul>
+    68→  );
+    69→}
+    70→
+    71→/* ================================================================
+    72→   PRIVACY POLICY
+    73→   ================================================================ */
+    74→export function PrivacyPage({ onNavigate }: { onNavigate: (p: string) => void }) {
+    75→  return (
+    76→    <LegalLayout
+    77→      title="Privacy Policy"
+    78→      lastUpdated="4 July 2026"
+    79→      onBack={() => onNavigate("home")}
+    80→    >
+    81→      <Section title="Introduction">
+    82→        <P>
+    83→          WeBizzle (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) operates the webizzle.co.ke
+    84→          platform and mobile applications (collectively, the &quot;Platform&quot;). We are committed
+    85→          to protecting your personal data and your right to privacy. This Privacy Policy explains
+    86→          how we collect, use, disclose, store and protect your information when you use our
+    87→          Platform, place orders, register as a vendor or rider, or otherwise interact with us.
+    88→        </P>
+    89→        <P>
+    90→          WeBizzle is registered in Kenya and complies with the Data Protection Act, 2019 and the
+    91→          Kenya Information and Communications (Amendment) Act, 2013. By using our Platform, you
+    92→          consent to the practices described in this policy. If you do not agree, please do not
+    93→          use the Platform.
+    94→        </P>
+    95→      </Section>
+    96→
+    97→      <Section title="Information We Collect">
+    98→        <SubSection title="Information you provide directly">
+    99→          <Bullets
+   100→            items={[
+   101→              "Account details: full name, phone number, email address, and profile photo when you register as a customer, vendor, or rider.",
+   102→              "Order information: delivery address, GPS location coordinates, customer name, phone number, and order items.",
+   103→              "Payment information: M-Pesa phone number used for transactions. We do not collect or store your M-Pesa PIN.",
+   104→              "Vendor verification documents: trade licence, municipal permit, KPLC token receipt, and shop logo uploaded during vendor registration.",
+   105→              "Rider verification data: full name, phone number, bike registration number, stage number, location area, and selfie photo for identity verification.",
+   106→              "Communication data: messages sent through our in-app chat, support requests, and WhatsApp correspondence.",
+   107→              "Referral information: referral codes you create or use, and referral activity.",
+   108→              "Receipt submissions: photos of purchase receipts you upload for token rewards.",
+   109→            ]}
+   110→          />
+   111→        </SubSection>
+   112→        <SubSection title="Information collected automatically">
+   113→          <Bullets
+   114→            items={[
+   115→              "Device information: device type, operating system, browser type, screen resolution, and unique device identifiers.",
+   116→              "Usage data: pages visited, features used, click patterns, session duration, and time spent on the Platform.",
+   117→              "Location data: GPS coordinates collected when you use the delivery address picker or live order tracking.",
+   118→              "Log data: IP address, access times, referring URLs, and error logs.",
+   119→            ]}
+   120→          />
+   121→        </SubSection>
+   122→        <SubSection title="Information from third parties">
+   123→          <Bullets
+   124→            items={[
+   125→              "M-Pesa payment confirmation from Safaricom via STK push and callback APIs.",
+   126→              "Delivery status updates from riders and vendors through the Platform.",
+   127→              "SMS delivery reports from Africa&apos;s Talking or our communications provider.",
+   128→            ]}
+   129→          />
+   130→        </SubSection>
+   131→      </Section>
+   132→
+   133→      <Section title="How We Use Your Information">
+   134→        <P>We process your personal data for the following purposes:</P>
+   135→        <Bullets
+   136→          items={[
+   137→            "To provide, operate, maintain and improve our Platform and services.",
+   138→            "To process and fulfil your orders, including matching you with vendors and riders.",
+   139→            "To facilitate M-Pesa payments and provide order confirmations.",
+   140→            "To verify the identity of vendors and riders during registration and onboarding.",
+   141→            "To communicate with you about orders, deliveries, promotions, and platform updates via SMS, in-app notifications, or WhatsApp.",
+   142→            "To provide live order tracking and delivery ETA updates.",
+   143→            "To detect, prevent and address fraud, disputes, and security issues.",
+   144→            "To generate anonymised price intelligence, market analytics, and savings reports.",
+   145→            "To administer referral programmes, receipt token rewards, and boost campaigns.",
+   146→            "To comply with Kenyan law, including tax obligations and regulatory requirements.",
+   147→            "To respond to your support requests and resolve complaints.",
+   148→          ]}
+   149→        />
+   150→      </Section>
+   151→
+   152→      <Section title="Data Sharing and Disclosure">
+   153→        <P>We do not sell your personal data. We may share your information with:</P>
+   154→        <Bullets
+   155→          items={[
+   156→            "Vendors: your delivery name, phone number, and order details necessary to fulfil your order.",
+   157→            "Riders: your delivery address (or GPS coordinates), phone number, and order details for delivery purposes.",
+   158→            "Payment processors: Safaricom/M-Pesa for payment facilitation.",
+   159→            "SMS providers: Africa&apos;s Talking for delivering OTP codes and order notifications.",
+   160→            "Law enforcement: when required by Kenyan law, court order, or regulatory authority.",
+   161→            "Professional advisors: lawyers, auditors, and accountants bound by confidentiality obligations.",
+   162→          ]}
+   163→        />
+   164→      </Section>
+   165→
+   166→      <Section title="Data Storage and Security">
+   167→        <P>
+   168→          Your data is stored on secure servers and protected using industry-standard encryption
+   169→          (TLS in transit, AES at rest). Our database is hosted in a controlled-access environment.
+   170→          We implement access controls, audit logging, and regular security reviews. However, no
+   171→          method of electronic transmission or storage is 100% secure, and we cannot guarantee
+   172→          absolute security.
+   173→        </P>
+   174→        <P>
+   175→          We retain your personal data for as long as your account is active or as needed to provide
+   176→          services. Order records are retained for a minimum of 7 years for tax and compliance
+   177→          purposes. Rider verification selfies and vendor documents are retained for the duration
+   178→          of the vendor/rider relationship and for 3 years thereafter.
+   179→        </P>
+   180→      </Section>
+   181→
+   182→      <Section title="Your Rights Under the Data Protection Act">
+   183→        <P>Under Kenyan law, you have the right to:</P>
+   184→        <Bullets
+   185→          items={[
+   186→            "Access: request a copy of the personal data we hold about you.",
+   187→            "Rectification: request correction of inaccurate or incomplete data.",
+   188→            "Erasure: request deletion of your personal data, subject to legal retention obligations.",
+   189→            "Restriction: request that we limit how we process your data.",
+   190→            "Data portability: request your data in a structured, machine-readable format.",
+   191→            "Object: object to processing based on legitimate interests or direct marketing.",
+   192→            "Withdraw consent: withdraw your consent at any time where processing is based on consent.",
+   193→          ]}
+   194→        />
+   195→        <P>
+   196→          To exercise any of these rights, contact us at{" "}
+   197→          <a href="mailto:privacy@webizzle.co.ke" className="text-brand hover:underline">
+   198→            privacy@webizzle.co.ke
+   199→          </a>{" "}
+   200→          or WhatsApp us at{" "}
+   201→          <a href="https://wa.me/254731371521" className="text-brand hover:underline" target="_blank" rel="noreferrer">
+   202→            0731 371 521
+   203→          </a>
+   204→          . We will respond within 21 days as required by law.
+   205→        </P>
+   206→      </Section>
+   207→
+   208→      <Section title="Cookies and Tracking">
+   209→        <P>
+   210→          We use essential cookies and local storage to maintain your session, shopping cart, and
+   211→          preferences. We do not use advertising cookies. We may use analytics tools to understand
+   212→          Platform usage in aggregate. You can control cookie settings through your browser.
+   213→        </P>
+   214→      </Section>
+   215→
+   216→      <Section title="Children's Privacy">
+   217→        <P>
+   218→          Our Platform is not directed at persons under 18 years of age. We do not knowingly
+   219→          collect personal data from children. If we discover that a child has provided us with
+   220→          personal data, we will delete it promptly.
+   221→        </P>
+   222→      </Section>
+   223→
+   224→      <Section title="Changes to This Policy">
+   225→        <P>
+   226→          We may update this Privacy Policy from time to time. Material changes will be notified
+   227→          via in-app notification or SMS at least 30 days before taking effect. Your continued use
+   228→          of the Platform after changes become effective constitutes acceptance of the revised policy.
+   229→        </P>
+   230→      </Section>
+   231→
+   232→      <Section title="Contact Us">
+   233→        <P>
+   234→          For any privacy-related questions or complaints, contact our Data Protection Officer:
+   235→        </P>
+   236→        <Card className="p-4 text-sm space-y-1">
+   237→          <p className="font-semibold">WeBizzle Data Protection Officer</p>
+   238→          <p>Email: <a href="mailto:privacy@webizzle.co.ke" className="text-brand hover:underline">privacy@webizzle.co.ke</a></p>
+   239→          <p>WhatsApp: <a href="https://wa.me/254731371521" className="text-brand hover:underline" target="_blank" rel="noreferrer">0731 371 521</a></p>
+   240→          <p>Address: Webuye, Westlands, Nairobi, Kenya</p>
+   241→        </Card>
+   242→      </Section>
+   243→    </LegalLayout>
+   244→  );
+   245→}
+   246→
+   247→/* ================================================================
+   248→   TERMS AND CONDITIONS
+   249→   ================================================================ */
+   250→export function TermsPage({ onNavigate }: { onNavigate: (p: string) => void }) {
+   251→  return (
+   252→    <LegalLayout
+   253→      title="Terms &amp; Conditions"
+   254→      lastUpdated="4 July 2026"
+   255→      onBack={() => onNavigate("home")}
+   256→    >
+   257→      <Section title="Introduction">
+   258→        <P>
+   259→          These General Terms and Conditions (&quot;Terms&quot;) govern your use of the WeBizzle
+   260→          platform accessible at webizzle.co.ke and our mobile applications (collectively, the
+   261→          &quot;Platform&quot;). WeBizzle is a neighbourhood e-commerce marketplace that connects
+   262→          customers with local vendors (dukas, Mama Mbogas, pharmacies, bakeries, hardware stores,
+   263→          butcheries, electronics shops, and agrovets) and delivery riders in Kenya.
+   264→        </P>
+   265→        <P>
+   266→          By accessing or using the Platform, you agree to be bound by these Terms. If you do not
+   267→          agree, please do not use the Platform. These Terms apply to customers, vendors, riders,
+   268→          and any other users of the Platform.
+   269→        </P>
+   270→      </Section>
+   271→
+   272→      <Section title="Registration and Account">
+   273→        <P>
+   274→          To place orders, you may use the Platform as a guest or register an account. To register
+   275→          as a vendor or rider, you must provide accurate and complete information including your
+   276→          full name, phone number, and any verification documents we require.
+   277→        </P>
+   278→        <Bullets
+   279→          items={[
+   280→            "You must be at least 18 years old to register as a vendor or rider.",
+   281→            "You must provide a valid Kenyan phone number for M-Pesa transactions and OTP verification.",
+   282→            "You are responsible for maintaining the confidentiality of your account credentials.",
+   283→            "You must immediately notify us of any unauthorised use of your account.",
+   284→            "We reserve the right to suspend or terminate accounts that violate these Terms.",
+   285→            "Vendor and rider accounts require approval through our verification process.",
+   286→          ]}
+   287→        />
+   288→      </Section>
+   289→
+   290→      <Section title="Terms and Conditions of Sale">
+   291→        <SubSection title="Product listings and pricing">
+   292→          <P>
+   293→            All product prices are listed in Kenyan Shillings (KES) and are set by individual
+   294→            vendors. WeBizzle displays prices for comparison purposes and does not set or guarantee
+   295→            prices. Vendors may update prices at any time. The price applicable to your order is
+   296→            the price displayed at the time of checkout.
+   297→          </P>
+   298→          <P>
+   299→            Our Smart Basket feature compares prices across multiple vendors and recommends the
+   300→            cheapest single-vendor option. Price comparisons are based on data available at the
+   301→            time of search and may not reflect real-time changes.
+   302→          </P>
+   303→        </SubSection>
+   304→        <SubSection title="Order placement">
+   305→          <P>
+   306→            When you place an order, you are making an offer to purchase from the selected vendor.
+   307→            An order is confirmed when the vendor accepts it. We reserve the right to cancel
+   308→            orders that appear to be fraudulent, erroneous, or that violate these Terms.
+   309→          </P>
+   310→        </SubSection>
+   311→        <SubSection title="Delivery">
+   312→          <Bullets
+   313→            items={[
+   314→              "Delivery times are estimates (typically 15–35 minutes) and are not guaranteed.",
+   315→              "Delivery is available within our listed coverage areas (currently Webuye, Westlands, and Wendani).",
+   316→              "Delivery fees are set by vendors and displayed before checkout.",
+   317→              "The customer is responsible for providing an accurate delivery address or GPS location.",
+   318→              "If the rider cannot reach you at the provided location after 2 attempts, the order may be returned to the vendor.",
+   319→            ]}
+   320→          />
+   321→        </SubSection>
+   322→        <SubSection title="Product availability">
+   323→          <P>
+   324→            All products are subject to availability. If a vendor cannot fulfil an item in your
+   325→            order, they will notify you before dispatch. You may accept a substitution, remove the
+   326→            item, or cancel the entire order.
+   327→          </P>
+   328→        </SubSection>
+   329→      </Section>
+   330→
+   331→      <Section title="Returns and Refunds">
+   332→        <P>
+   333→          Returns and refunds are governed by the following policy, in compliance with the
+   334→          Consumer Protection Act, 2012:
+   335→        </P>
+   336→        <Bullets
+   337→          items={[
+   338→            "Perishable goods (fresh produce, baked goods) cannot be returned once delivered due to food safety regulations.",
+   339→            "Non-perishable items may be returned within 24 hours of delivery if they are defective, damaged, or not as described.",
+   340→            "To request a return or refund, contact us via WhatsApp within 2 hours of delivery and provide your M-Pesa code as proof of purchase.",
+   341→            "Refunds are processed via M-Pesa to the phone number used for the original payment within 48 hours of approval.",
+   342→            "Delivery fees are non-refundable except where the vendor is at fault (wrong item, damaged goods).",
+   343→            "If a vendor fails to deliver an order without valid reason, a full refund (including delivery fee) will be issued.",
+   344→            "Disputes between customers and vendors will be reviewed by our support team, whose decision is final.",
+   345→          ]}
+   346→        />
+   347→      </Section>
+   348→
+   349→      <Section title="Payments">
+   350→        <P>
+   351→          All payments on the Platform are processed via M-Pesa (Safaricom). By using our Platform,
+   352→          you acknowledge and agree that:
+   353→        </P>
+   354→        <Bullets
+   355→          items={[
+   356→            "Payment is initiated through the M-Pesa STK push on your registered phone number.",
+   357→            "You must enter your M-Pesa PIN on your own device. WeBizzle never collects, stores, or has access to your M-Pesa PIN.",
+   358→            "An order is only confirmed upon successful M-Pesa payment. WeBizzle does not offer credit or pay-later services.",
+   359→            "The M-Pesa confirmation code (Lipa Na M-Pesa Online) serves as your proof of payment.",
+   360→            "Platform fees (3% on orders above KES 300) and rider levies (10% of delivery fee) are deducted automatically from vendor and rider payouts respectively.",
+   361→            "Vendors receive their payout (subtotal minus platform fee) instantly via M-Pesa upon order completion.",
+   362→            "Riders receive their payout (delivery fee minus rider levy) weekly via M-Pesa.",
+   363→          ]}
+   364→        />
+   365→      </Section>
+   366→
+   367→      <Section title="Store Credit">
+   368→        <P>
+   369→          WeBizzle may issue store credit or token rewards through the following programmes:
+   370→        </P>
+   371→        <Bullets
+   372→          items={[
+   373→            "Receipt token rewards: 10 tokens per approved receipt submission. Tokens may be redeemed for discounts on future orders.",
+   374→            "Referral rewards: earn KES credit when your referral code is used by new customers who place qualifying orders.",
+   375→            "Promotional credits: store credit issued through special promotions, which may have expiry dates and usage conditions.",
+   376→            "Store credit is non-transferable, has no cash value, and cannot be exchanged for cash.",
+   377→            "Unused store credit expires 12 months from the date of issue unless otherwise stated.",
+   378→          ]}
+   379→        />
+   380→      </Section>
+   381→
+   382→      <Section title="Promotions">
+   383→        <P>
+   384→          WeBizzle and its vendors may run promotional campaigns from time to time. The following
+   385→          terms apply:
+   386→        </P>
+   387→        <Bullets
+   388→          items={[
+   389→            "Promotions are subject to availability and may be modified or withdrawn at any time without prior notice.",
+   390→            "Each promotion has specific terms, including eligibility criteria, validity period, and any minimum spend requirements.",
+   391→            "Promotions cannot be combined unless explicitly stated.",
+   392→            "Promotional discounts apply to the product price only and not to delivery fees unless stated.",
+   393→            "WeBizzle reserves the right to void orders that abuse promotional offers.",
+   394→            "Boost campaigns (paid vendor promotions) are subject to the Boost Campaign Terms available on request.",
+   395→          ]}
+   396→        />
+   397→      </Section>
+   398→
+   399→      <Section title="Rules About Your Content">
+   400→        <P>
+   401→          &quot;Your Content&quot; means any text, images, logos, documents, reviews, or other
+   402→          materials you submit to the Platform, including:
+   403→        </P>
+   404→        <Bullets
+   405→          items={[
+   406→            "Vendor shop names, logos, product listings, and descriptions.",
+   407→            "Verification documents (trade licences, permits, KPLC receipts).",
+   408→            "Rider selfies and identification documents.",
+   409→            "Customer reviews, ratings, and feedback.",
+   410→            "Receipt photos submitted for token rewards.",
+   411→            "Chat messages sent through our in-app support or vendor/rider communication features.",
+   412→          ]}
+   413→        />
+   414→        <P>You must not upload content that:</P>
+   415→        <Bullets
+   416→          items={[
+   417→            "Is false, misleading, deceptive, or fraudulent.",
+   418→            "Infringes any third-party intellectual property rights.",
+   419→            "Is defamatory, obscene, offensive, hateful, or discriminatory.",
+   420→            "Contains viruses, malware, or any harmful code.",
+   421→            "Violates any applicable Kenyan law or regulation.",
+   422→            "Impersonates any person or entity.",
+   423→          ]}
+   424→        />
+   425→      </Section>
+   426→
+   427→      <Section title="Our Rights to Use Your Content">
+   428→        <P>
+   429→          By submitting content to the Platform, you grant WeBizzle a non-exclusive, royalty-free,
+   430→          worldwide, transferable licence to use, reproduce, modify, adapt, publish, translate,
+   431→          distribute, and display your content for the following purposes:
+   432→        </P>
+   433→        <Bullets
+   434→          items={[
+   435→            "Displaying your content on the Platform (e.g. vendor shop profiles, product listings, rider profiles).",
+   436→            "Using vendor logos and shop names in marketing materials, social media, and promotional content with vendor consent.",
+   437→            "Anonymising and using order and pricing data for market analytics, price intelligence, and savings calculations.",
+   438→            "Improving our Platform, algorithms, and recommendation systems.",
+   439→            "Complying with legal obligations and responding to lawful requests from authorities.",
+   440→          ]}
+   441→        />
+   442→        <P>
+   443→          Rider selfie photos are used solely for identity verification during registration and
+   444→          are not shared publicly or used for marketing without explicit consent.
+   445→        </P>
+   446→      </Section>
+   447→
+   448→      <Section title="Use of Website and Mobile Applications">
+   449→        <P>You agree to use the Platform only for lawful purposes and in accordance with these Terms. You must not:</P>
+   450→        <Bullets
+   451→          items={[
+   452→            "Use the Platform in any way that violates any applicable local, national, or international law or regulation.",
+   453→            "Attempt to gain unauthorised access to any part of the Platform, other accounts, computer systems, or networks connected to the Platform.",
+   454→            "Interfere with or disrupt the Platform or servers or networks connected to the Platform.",
+   455→            "Use automated means (bots, scrapers, crawlers) to access or collect data from the Platform without our written permission.",
+   456→            "Introduce any viruses, trojans, worms, logic bombs, or other malicious material.",
+   457→            "Attempt to manipulate prices, ratings, reviews, or any Platform algorithms.",
+   458→            "Create multiple accounts for fraudulent purposes.",
+   459→            "Reverse-engineer, decompile, or disassemble any part of the Platform.",
+   460→            "Use the Platform to solicit business from vendors or riders outside of the Platform.",
+   461→          ]}
+   462→        />
+   463→      </Section>
+   464→
+   465→      <Section title="Copyright and Trademarks">
+   466→        <P>
+   467→          All content on the Platform, including but not limited to text, graphics, logos, icons,
+   468→          images, audio clips, software, and their compilation (the &quot;Content&quot;) is the
+   469→          property of WeBizzle or its content suppliers and is protected by Kenyan and international
+   470→          copyright, trademark, and other intellectual property laws.
+   471→        </P>
+   472→        <Bullets
+   473→          items={[
+   474→            "The WeBizzle name, logo, and all related names, logos, product and service names, designs, and slogans are trademarks of WeBizzle.",
+   475→            "You may not use, reproduce, modify, or distribute any Content without our prior written consent.",
+   476→            "Vendor and rider content remains the property of the respective vendor or rider. By submitting content, you grant us the licence described in the \"Our Rights to Use Your Content\" section above.",
+   477→            "Unauthorised use of the Platform or its Content may violate copyright, trademark, and other laws.",
+   478→          ]}
+   479→        />
+   480→      </Section>
+   481→
+   482→      <Section title="Data Privacy">
+   483→        <P>
+   484→          Your use of the Platform is also governed by our{" "}
+   485→          <button
+   486→            type="button"
+   487→            className="text-brand hover:underline font-medium"
+   488→            onClick={() => onNavigate("privacy")}
+   489→          >
+   490→            Privacy Policy
+   491→          </button>
+   492→          , which is incorporated into these Terms by reference. By using the Platform, you
+   493→          consent to the collection and use of your information as described in the Privacy Policy.
+   494→        </P>
+   495→      </Section>
+   496→
+   497→      <Section title="Due Diligence and Audit Rights">
+   498→        <P>
+   499→          WeBizzle and its authorised representatives reserve the right to conduct audits and due
+   500→          diligence checks on vendors and riders, including but not limited to:
+   501→        </P>
+   502→        <Bullets
+   503→          items={[
+   504→            "Verifying the accuracy of vendor registration documents and licences.",
+   505→            "Confirming rider identity documents and bike registration details.",
+   506→            "Reviewing order and transaction records for compliance and fraud prevention.",
+   507→            "Requesting additional documentation or information as reasonably required.",
+   508→            "Conducting on-site visits to vendor premises with prior notice.",
+   509→          ]}
+   510→        />
+   511→        <P>
+   512→          Vendors and riders must cooperate fully with any audit or due diligence request.
+   513→          Failure to cooperate may result in account suspension or termination.
+   514→        </P>
+   515→      </Section>
+   516→
+   517→      <Section title="WeBizzle's Role as a Marketplace">
+   518→        <P>
+   519→          WeBizzle is an online marketplace that connects customers with independent third-party
+   520→          vendors and riders. It is important to understand:
+   521→        </P>
+   522→        <Bullets
+   523→          items={[
+   524→            "WeBizzle is not a party to the sale contract between you and the vendor. The vendor is solely responsible for the quality, safety, and legality of the products they sell.",
+   525→            "WeBizzle does not endorse, guarantee, or assume responsibility for any product listed on the Platform or any vendor's ability to fulfil orders.",
+   526→            "Riders are independent contractors, not employees of WeBizzle. WeBizzle is not responsible for the actions or omissions of riders during delivery.",
+   527→            "Product descriptions, images, and prices are provided by vendors and WeBizzle does not verify the accuracy of all such information.",
+   528→            "WeBizzle facilitates the transaction and delivery process but does not take title to or ownership of any products.",
+   529→          ]}
+   530→        />
+   531→      </Section>
+   532→
+   533→      <Section title="Limitations and Exclusions of Liability">
+   534→        <P>
+   535→          To the maximum extent permitted by Kenyan law:
+   536→        </P>
+   537→        <Bullets
+   538→          items={[
+   539→            "The Platform is provided on an \"as is\" and \"as available\" basis. We make no representations or warranties of any kind, whether express or implied, regarding the Platform's operation, accuracy, reliability, or availability.",
+   540→            "WeBizzle shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data, or goodwill, arising from or related to your use of the Platform.",
+   541→            "WeBizzle's total liability for any claims arising from or related to these Terms or the Platform shall not exceed the total fees you have paid to WeBizzle in the 12 months preceding the claim.",
+   542→            "WeBizzle is not liable for any loss or damage arising from: (a) vendor products that are defective, misrepresented, or cause injury; (b) delivery delays or failures caused by riders or circumstances beyond our control; (c) M-Pesa transaction failures; (d) unauthorised access to your account due to your failure to protect your credentials.",
+   543→            "Nothing in these Terms excludes or limits liability for death or personal injury caused by negligence, fraud, or any other liability that cannot be excluded or limited by Kenyan law.",
+   544→          ]}
+   545→        />
+   546→      </Section>
+   547→
+   548→      <Section title="Indemnification">
+   549→        <P>
+   550→          You agree to indemnify, defend, and hold harmless WeBizzle, its directors, employees,
+   551→          agents, and affiliates from and against any and all claims, damages, losses, liabilities,
+   552→          costs, and expenses (including reasonable legal fees) arising from or related to:
+   553→        </P>
+   554→        <Bullets
+   555→          items={[
+   556→            "Your breach of these Terms.",
+   557→            "Your violation of any applicable law or regulation.",
+   558→            "Your use of the Platform in a manner not authorised by these Terms.",
+   559→            "Content you submit, post, or transmit through the Platform.",
+   560→            "Any dispute between you and a vendor, rider, or another user of the Platform.",
+   561→            "Any product sold by a vendor that causes harm, injury, or damage.",
+   562→            "Any actions or omissions by a rider during delivery of your order.",
+   563→          ]}
+   564→        />
+   565→      </Section>
+   566→
+   567→      <Section title="Breaches of These General Terms and Conditions">
+   568→        <P>
+   569→          We reserve the right to take action if we reasonably believe you have breached these
+   570→          Terms. Actions we may take include:
+   571→        </P>
+   572→        <Bullets
+   573→          items={[
+   574→            "Issuing a warning.",
+   575→            "Temporarily suspending your account.",
+   576→            "Permanently terminating your account.",
+   577→            "Removing or disabling access to your content.",
+   578→            "Refusing to process current or future orders.",
+   579→            "Reporting the breach to relevant authorities where required by law.",
+   580→          ]}
+   581→        />
+   582→        <P>
+   583→          Serious breaches (including fraud, impersonation, sale of counterfeit or illegal goods,
+   584→          and harassment) will result in immediate permanent termination and may be reported to
+   585→          law enforcement.
+   586→        </P>
+   587→      </Section>
+   588→
+   589→      <Section title="Entire Agreement">
+   590→        <P>
+   591→          These Terms, together with the{" "}
+   592→          <button
+   593→            type="button"
+   594→            className="text-brand hover:underline font-medium"
+   595→            onClick={() => onNavigate("privacy")}
+   596→          >
+   597→            Privacy Policy
+   598→          </button>
+   599→          , constitute the entire agreement between you and WeBizzle regarding the use of the
+   600→          Platform. They supersede all prior or contemporaneous communications, representations,
+   601→          or agreements, whether oral or written.
+   602→        </P>
+   603→      </Section>
+   604→
+   605→      <Section title="Hierarchy">
+   606→        <P>
+   607→          In the event of any conflict between these Terms and any other agreement, policy, or
+   608→          notice relating to the Platform, the following hierarchy shall apply (from highest to
+   609→          lowest authority):
+   610→        </P>
+   611→        <Bullets
+   612→          items={[
+   613→            "Kenyan statutory law (Data Protection Act, Consumer Protection Act, etc.).",
+   614→            "These General Terms and Conditions.",
+   615→            "Platform-specific policies (Privacy Policy, Refund Policy, Vendor Agreement, Rider Agreement).",
+   616→            "Any communications or notices issued by WeBizzle.",
+   617→          ]}
+   618→        />
+   619→      </Section>
+   620→
+   621→      <Section title="Variation">
+   622→        <P>
+   623→          WeBizzle may revise these Terms at any time. Material changes will be communicated to
+   624→          users via in-app notification or SMS at least 30 days before the revised Terms take
+   625→          effect. Non-material changes may be made without prior notice. Your continued use of
+   626→          the Platform after changes take effect constitutes acceptance of the revised Terms.
+   627→        </P>
+   628→      </Section>
+   629→
+   630→      <Section title="No Waiver">
+   631→        <P>
+   632→          The failure of WeBizzle to exercise or enforce any right or provision of these Terms
+   633→          shall not constitute a waiver of such right or provision. Any waiver of any provision
+   634→          of these Terms will be effective only if in writing and signed by WeBizzle.
+   635→        </P>
+   636→      </Section>
+   637→
+   638→      <Section title="Severability">
+   639→        <P>
+   640→          If any provision of these Terms is held to be invalid, illegal, or unenforceable by a
+   641→          court of competent jurisdiction, such provision shall be modified to the minimum extent
+   642→          necessary to make it valid and enforceable, and the remaining provisions shall continue
+   643→          in full force and effect.
+   644→        </P>
+   645→      </Section>
+   646→
+   647→      <Section title="Assignment">
+   648→        <P>
+   649→          You may not assign or transfer these Terms or your rights or obligations under these
+   650→          Terms to any third party without our prior written consent. WeBizzle may assign its
+   651→          rights and obligations under these Terms to any affiliate, subsidiary, or successor
+   652→          entity without your consent, provided that the assignee agrees to be bound by these Terms.
+   653→        </P>
+   654→      </Section>
+   655→
+   656→      <Section title="Third Party Rights">
+   657→        <P>
+   658→          These Terms do not create any rights in favour of any third party (other than our
+   659→          authorised agents and successors) to enforce any provision of these Terms. The Contracts
+   660→          (Rights of Third Parties) Act does not apply to these Terms.
+   661→        </P>
+   662→      </Section>
+   663→
+   664→      <Section title="Law and Jurisdiction">
+   665→        <P>
+   666→          These Terms are governed by and construed in accordance with the laws of the Republic
+   667→          of Kenya. Any disputes arising from or related to these Terms shall be subject to the
+   668→          exclusive jurisdiction of the courts of Kenya. Before commencing legal proceedings, you
+   669→          agree to attempt to resolve any dispute with us through our internal complaints process
+   670→          (contact us via WhatsApp at 0731 371 521 or email at{" "}
+   671→          <a href="mailto:legal@webizzle.co.ke" className="text-brand hover:underline">
+   672→            legal@webizzle.co.ke
+   673→          </a>
+   674→          ).
+   675→        </P>
+   676→      </Section>
+   677→
+   678→      <Section title="Our Company Details and Notices">
+   679→        <Card className="p-4 text-sm space-y-1.5">
+   680→          <p className="font-semibold text-base">WeBizzle</p>
+   681→          <p>Online neighbourhood marketplace platform</p>
+   682→          <p>Email: <a href="mailto:legal@webizzle.co.ke" className="text-brand hover:underline">legal@webizzle.co.ke</a></p>
+   683→          <p>Support: <a href="mailto:help@webizzle.co.ke" className="text-brand hover:underline">help@webizzle.co.ke</a></p>
+   684→          <p>WhatsApp: <a href="https://wa.me/254731371521" className="text-brand hover:underline" target="_blank" rel="noreferrer">0731 371 521</a></p>
+   685→          <p>Address: Webuye, Westlands, Nairobi, Kenya</p>
+   686→          <p className="text-muted-foreground">Registered in the Republic of Kenya</p>
+   687→        </Card>
+   688→      </Section>
+   689→    </LegalLayout>
+   690→  );
+   691→}
+   692→
+   693→/* ================================================================
+   694→   FAQS PAGE
+   695→   ================================================================ */
+   696→export function FaqsPage({ onNavigate }: { onNavigate: (p: string) => void }) {
+   697→  const faqGroups = [
+   698→    {
+   699→      title: "Orders & Delivery",
+   700→      faqs: [
+   701→        {
+   702→          q: "How do I place an order?",
+   703→          a: "Browse products on the home page or use the Smart Basket to compare prices. Add items, select a vendor, and proceed to checkout. Enter your delivery details and pay via M-Pesa. You'll receive an order confirmation with tracking details.",
+   704→        },
+   705→        {
+   706→          q: "How long does delivery take?",
+   707→          a: "Most orders are delivered within 15–35 minutes depending on the vendor and your location. The estimated delivery time is shown before you confirm your order. You can track your rider in real-time after dispatch.",
+   708→        },
+   709→        {
+   710→          q: "Can I track my delivery?",
+   711→          a: "Yes! After your order is dispatched, open the Orders page and tap \"Track\" to see live rider location on a map, estimated arrival time, rider name, bike plate number, and a step-by-step delivery timeline. The tracker updates every 5 seconds.",
+   712→        },
+   713→        {
+   714→          q: "What happens if an item is out of stock?",
+   715→          a: "The vendor will notify you before dispatch. You can choose to accept a substitute product, remove the item from your order, or cancel the entire order for a full refund.",
+   716→        },
+   717→        {
+   718→          q: "Can I cancel my order?",
+   719→          a: "You can request a cancellation before the vendor confirms the order. Once confirmed, cancellation is at the vendor's discretion. Contact us via WhatsApp immediately if you need to cancel.",
+   720→        },
+   721→        {
+   722→          q: "What if my rider can't find my location?",
+   723→          a: "The rider will call you using the phone number provided. You can also share your live GPS location from the order tracking screen. If the rider cannot reach you after 2 attempts, the order may be returned.",
+   724→        },
+   725→      ],
+   726→    },
+   727→    {
+   728→      title: "Payments & Pricing",
+   729→      faqs: [
+   730→        {
+   731→          q: "How do I pay?",
+   732→          a: "All payments are made through M-Pesa. At checkout, enter your M-Pesa phone number and approve the STK push on your phone. Your M-Pesa confirmation code serves as your proof of payment. We never see or store your M-Pesa PIN.",
+   733→        },
+   734→        {
+   735→          q: "How does the Smart Basket save me money?",
+   736→          a: "The Smart Basket compares prices across all vendors for the items you want, then recommends the single vendor that offers the lowest total (items + delivery fee). You'll see exactly how much you save compared to the market average price.",
+   737→        },
+   738→        {
+   739→          q: "What is the platform fee?",
+   740→          a: "A 3% platform fee applies to orders above KES 300. This fee is automatically deducted from the vendor's payout — it is not charged to you as a separate fee.",
+   741→        },
+   742→        {
+   743→          q: "Can I get a refund?",
+   744→          a: "Yes. If a vendor fails to deliver, provides wrong/damaged items, or if there's a payment error, you can request a refund via WhatsApp within 2 hours of delivery. Refunds are processed via M-Pesa within 48 hours. Perishable goods cannot be returned due to food safety regulations.",
+   745→        },
+   746→      ],
+   747→    },
+   748→    {
+   749→      title: "Vendors",
+   750→      faqs: [
+   751→        {
+   752→          q: "How do I register my shop on WeBizzle?",
+   753→          a: "Click 'Vendor' in the navigation, fill in your shop name, owner name, and M-Pesa phone number. Upload your trade licence, municipal permit, and KPLC token receipt for faster approval. After OTP verification, you'll be directed to your Vendor Portal.",
+   754→        },
+   755→        {
+   756→          q: "Is there a registration fee?",
+   757→          a: "No. Registering your shop on WeBizzle is completely free. There are no setup fees or monthly charges.",
+   758→        },
+   759→        {
+   760→          q: "How do I receive payments?",
+   761→          a: "Payments are sent directly to your M-Pesa account. You receive the order subtotal minus a 3% platform fee (only on orders above KES 300). Payouts are processed instantly upon order completion.",
+   762→        },
+   763→        {
+   764→          q: "How do I manage orders?",
+   765→          a: "Log into your Vendor Portal using your phone number and OTP. From the portal, you can view incoming orders, accept or reject them, update your product catalogue, set duty hours, and chat with support.",
+   766→        },
+   767→        {
+   768→          q: "What is the Boost feature?",
+   769→          a: "Boost is a paid promotion that increases your shop's visibility on WeBizzle. Choose from Silver, Gold, or Platinum packages. Your shop appears higher in search results and gets more impressions. Payment is via M-Pesa.",
+   770→        },
+   771→        {
+   772→          q: "What types of shops can join?",
+   773→          a: "We welcome all neighbourhood vendor types: Dukas, Mama Mbogas, Pharmacies, Bakeries, Hardware stores, Butcheries, Electronics shops, and Agrovets. If you sell products to your local community, you're welcome on WeBizzle.",
+   774→        },
+   775→      ],
+   776→    },
+   777→    {
+   778→      title: "Riders",
+   779→      faqs: [
+   780→        {
+   781→          q: "How do I become a WeBizzle rider?",
+   782→          a: "Click 'Rider' in the navigation, fill in your full name, phone number, bike registration number, stage number, and location area. Take a selfie for identity verification. After OTP verification, you'll be directed to your Rider Portal. Our team will review and approve your application.",
+   783→        },
+   784→        {
+   785→          q: "What is the stage number for?",
+   786→          a: "Your stage number (e.g., Stage 14, Matatu Terminus) helps us identify your location for easy dispatch and helps customers and admin know where you operate from.",
+   787→        },
+   788→        {
+   789→          q: "How much do riders earn?",
+   790→          a: "Riders earn the full delivery fee for each delivery minus a 10% rider levy that goes to WeBizzle. Tips from customers are yours to keep. Earnings depend on the number and distance of deliveries completed.",
+   791→        },
+   792→        {
+   793→          q: "When do I get paid?",
+   794→          a: "Rider payouts are processed weekly via M-Pesa. You can view your earnings breakdown (total deliveries, total earned, levy deducted, net payout) in the Rider Portal.",
+   795→        },
+   796→        {
+   797→          q: "Can I choose my own hours?",
+   798→          a: "Yes. You can toggle your online/offline status in the Rider Portal at any time. You set your own schedule and only receive delivery requests when you're online.",
+   799→        },
+   800→      ],
+   801→    },
+   802→    {
+   803→      title: "Referrals, Receipts & Rewards",
+   804→      faqs: [
+   805→        {
+   806→          q: "How does the referral programme work?",
+   807→          a: "Generate a unique referral code from the Referrals page. Share it with friends via WhatsApp. When someone signs up using your code and places an order, you earn KES credit. Track your clicks, signups, and earnings in real-time.",
+   808→        },
+   809→        {
+   810→          q: "What is the receipt snap feature?",
+   811→          a: "Upload photos of your purchase receipts from any retailer. Our system extracts the total amount and awards you 10 tokens per approved receipt. Tokens can be redeemed for discounts on future WeBizzle orders.",
+   812→        },
+   813→        {
+   814→          q: "How do I check my savings?",
+   815→          a: "The Savings page shows your total savings across all orders compared to market-average prices, average savings percentage, savings by category, best savings streak, and your savings history.",
+   816→        },
+   817→      ],
+   818→    },
+   819→    {
+   820→      title: "Account & Security",
+   821→      faqs: [
+   822→        {
+   823→          q: "Is my M-Pesa PIN safe?",
+   824→          a: "Absolutely. Your M-Pesa PIN is entered directly on your phone's Safaricom SIM toolkit. WeBizzle never sees, collects, or stores your PIN. The STK push is handled entirely by Safaricom's secure system.",
+   825→        },
+   826→        {
+   827→          q: "How does OTP verification work?",
+   828→          a: "When you register or log in, we send a 6-digit code to your phone via SMS. Enter the code to verify your identity. Codes expire after 5 minutes. In development mode, the code is displayed on screen for testing.",
+   829→        },
+   830→        {
+   831→          q: "How do I report a problem?",
+   832→          a: "Contact us via WhatsApp at 0731 371 521 (fastest, 7am–10pm daily), call us, or email help@webizzle.co.ke. For order issues, have your M-Pesa code ready as proof of purchase.",
+   833→        },
+   834→      ],
+   835→    },
+   836→  ];
+   837→
+   838→  return (
+   839→    <div className="mx-auto max-w-3xl space-y-6 pb-8">
+   840→      <div className="flex items-center gap-3">
+   841→        <Button variant="ghost" size="sm" onClick={() => onNavigate("home")}>
+   842→          <ArrowLeft size={14} /> Back
+   843→        </Button>
+   844→      </div>
+   845→      <div>
+   846→        <h1 className="text-2xl font-extrabold text-foreground sm:text-3xl">
+   847→          Frequently Asked Questions
+   848→        </h1>
+   849→        <p className="mt-1 text-sm text-muted-foreground">
+   850→          Everything you need to know about using WeBizzle
+   851→        </p>
+   852→      </div>
+   853→
+   854→      {/* Quick links */}
+   855→      <div className="flex flex-wrap gap-2">
+   856→        {faqGroups.map((g) => (
+   857→          <a
+   858→            key={g.title}
+   859→            href={`#faq-${g.title.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+   860→            className="rounded-full bg-brand-light px-3 py-1.5 text-xs font-medium text-brand hover:bg-brand hover:text-white transition-colors"
+   861→          >
+   862→            {g.title}
+   863→          </a>
+   864→        ))}
+   865→      </div>
+   866→
+   867→      {faqGroups.map((group) => (
+   868→        <section
+   869→          key={group.title}
+   870→          id={`faq-${group.title.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+   871→          className="space-y-3 scroll-mt-20"
+   872→        >
+   873→          <h2 className="text-base font-bold text-foreground">{group.title}</h2>
+   874→          <div className="space-y-2">
+   875→            {group.faqs.map((faq) => (
+   876→              <details
+   877→                key={faq.q}
+   878→                className="group rounded-xl border border-border bg-card p-3"
+   879→              >
+   880→                <summary className="flex cursor-pointer items-center justify-between gap-2 font-medium text-sm list-none">
+   881→                  {faq.q}
+   882→                  <span className="shrink-0 text-muted-foreground transition-transform group-open:rotate-45 text-lg leading-none">
+   883→                    +
+   884→                  </span>
+   885→                </summary>
+   886→                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+   887→                  {faq.a}
+   888→                </p>
+   889→              </details>
+   890→            ))}
+   891→          </div>
+   892→        </section>
+   893→      ))}
+   894→
+   895→      <Card className="p-4 text-center text-sm space-y-2">
+   896→        <p className="font-semibold">Still have questions?</p>
+   897→        <p className="text-muted-foreground">
+   898→          We're here to help — chat with us on WhatsApp or browse our Support page.
+   899→        </p>
+   900→        <div className="flex justify-center gap-3 pt-1">
+   901→          <Button
+   902→            variant="outline"
+   903→            size="sm"
+   904→            asChild
+   905→          >
+   906→            <a href="https://wa.me/254731371521" target="_blank" rel="noreferrer">
+   907→              WhatsApp us
+   908→            </a>
+   909→          </Button>
+   910→          <Button
+   911→            size="sm"
+   912→            className="bg-brand text-white hover:bg-brand-dark"
+   913→            onClick={() => onNavigate("support")}
+   914→          >
+   915→            Support page
+   916→          </Button>
+   917→        </div>
+   918→      </Card>
+   919→    </div>
+   920→  );
+   921→}
