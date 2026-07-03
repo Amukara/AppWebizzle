@@ -102,12 +102,15 @@ model VendorApplication {
 }
 
 model RiderApplication {
-  id        String   @id @default(cuid())
-  fullName  String
-  phone     String
-  bikePlate String
-  status    String   @default("PENDING")
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  fullName     String
+  phone        String
+  bikePlate    String
+  stageNumber  String   // Stage / matatu stage number for identification
+  locationArea String   // Location / area of operation
+  selfieUrl    String?  // base64 data URL of rider selfie for verification
+  status       String   @default("PENDING")
+  createdAt    DateTime @default(now())
 }
 
 // Vendor-paid profile boosts

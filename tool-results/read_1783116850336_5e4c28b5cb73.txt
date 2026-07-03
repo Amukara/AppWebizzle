@@ -1,0 +1,829 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+     4→import {
+     5→  Bell,
+     6→  Bike,
+     7→  CheckCheck,
+     8→  Clock,
+     9→  Loader2,
+    10→  LogOut,
+    11→  MapPin,
+    12→  Phone,
+    13→  Star,
+    14→  Truck,
+    15→  User,
+    16→  Wallet,
+    17→  Zap,
+    18→} from "lucide-react";
+    19→import { Button } from "@/components/ui/button";
+    20→import { Card } from "@/components/ui/card";
+    21→import { Input } from "@/components/ui/input";
+    22→import { Label } from "@/components/ui/label";
+    23→import { Badge } from "@/components/ui/badge";
+    24→import { Switch } from "@/components/ui/switch";
+    25→import { KES } from "../logo";
+    26→import { useRealtime } from "@/hooks/use-realtime";
+    27→import { useToast } from "@/hooks/use-toast";
+    28→import { OtpLoginGate } from "../ui/otp-login-gate";
+    29→import type { AppNotification, Order, RiderPortal } from "@/lib/types";
+    30→
+    31→// Seeded rider pool — kept in sync with src/lib/pricing.ts RIDERS so the portal
+    32→// can show the rating (the RiderPortal type doesn't carry a rating field).
+    33→const SEEDED_RIDERS: {
+    34→  phone: string;
+    35→  name: string;
+    36→  plate: string;
+    37→  rating: number;
+    38→}[] = [
+    39→  { phone: "0711224118", name: "Peter Mutua", plate: "KMEA 224B", rating: 4.8 },
+    40→  { phone: "0722902553", name: "Brian Otieno", plate: "KMEB 902X", rating: 4.7 },
+    41→  { phone: "0701771209", name: "Faith Wanjiru", plate: "KMFC 771A", rating: 4.9 },
+    42→  { phone: "0733550441", name: "Samuel Kiptoo", plate: "KMDD 550C", rating: 4.6 },
+    43→  { phone: "0790318776", name: "Grace Auma", plate: "KMLG 318P", rating: 4.8 },
+    44→];
+    45→
+    46→// Hint list shown on the login gate (with spaces, as a customer would read them).
+    47→const SEEDED_PHONE_HINTS = [
+    48→  "0711 224 118",
+    49→  "0722 902 553",
+    50→  "0701 771 209",
+    51→  "0733 550 441",
+    52→  "0790 318 776",
+    53→];
+    54→
+    55→function normPhone(s: string): string {
+    56→  return (s || "").replace(/\s+/g, "");
+    57→}
+    58→
+    59→function relativeTime(iso: string): string {
+    60→  const then = new Date(iso).getTime();
+    61→  if (Number.isNaN(then)) return "";
+    62→  const diff = Math.max(0, Date.now() - then);
+    63→  const s = Math.floor(diff / 1000);
+    64→  if (s < 60) return "just now";
+    65→  const m = Math.floor(s / 60);
+    66→  if (m < 60) return `${m}m ago`;
+    67→  const h = Math.floor(m / 60);
+    68→  if (h < 24) return `${h}h ago`;
+    69→  const d = Math.floor(h / 24);
+    70→  return `${d}d ago`;
+    71→}
+    72→
+    73→function statusPillClass(status: string): string {
+    74→  switch ((status || "").toUpperCase()) {
+    75→    case "DELIVERED":
+    76→      return "bg-brand-light text-brand";
+    77→    case "DISPATCHED":
+    78→      return "bg-gold/15 text-gold";
+    79→    case "CONFIRMED":
+    80→      return "bg-amber-100 text-amber-800";
+    81→    case "PLACED":
+    82→      return "bg-muted text-muted-foreground";
+    83→    default:
+    84→      return "bg-muted text-muted-foreground";
+    85→  }
+    86→}
+    87→
+    88→// Normalise a raw socket "notification" payload (which may be the AppNotification
+    89→// shape OR the leaner {type, orderId, customerName, total, at} shape the realtime
+    90→// service emits) into an AppNotification-shaped object.
+    91→function normalizeSocketNotif(
+    92→  raw: unknown,
+    93→  riderKey: string
+    94→): AppNotification | null {
+    95→  if (!raw || typeof raw !== "object") return null;
+    96→  const n = raw as Record<string, unknown>;
+    97→  const at = (n.at as string) || (n.createdAt as string) || new Date().toISOString();
+    98→  const type = (n.type as string) || "SYSTEM";
+    99→  const id =
+   100→    (n.id as string) || `socket-${at}-${type}-${(n.orderId as string) || ""}`;
+   101→  const title =
+   102→    (n.title as string) ||
+   103→    (type === "NEW_ORDER" ? "New order 🛒" : type === "DISPATCH" ? "Dispatch alert 🛵" : "New alert");
+   104→  const body =
+   105→    (n.body as string) ||
+   106→    (n.customerName && typeof n.total === "number"
+   107→      ? `${n.customerName} · KES ${Number(n.total).toLocaleString("en-KE")}`
+   108→      : "");
+   109→  return {
+   110→    id,
+   111→    recipientType: "RIDER",
+   112→    recipientId: riderKey,
+   113→    type,
+   114→    title,
+   115→    body,
+   116→    read: false,
+   117→    orderId: (n.orderId as string) || null,
+   118→    createdAt: at,
+   119→  };
+   120→}
+   121→
+   122→export function RiderPortalPage({
+   123→  onNavigate,
+   124→}: {
+   125→  onNavigate: (p: "home" | "basket") => void;
+   126→}) {
+   127→  const { toast } = useToast();
+   128→
+   129→  // Login state — phone + OTP
+   130→  const [portalToken, setPortalTokenState] = useState<string | null>(null);
+   131→  const [riderKey, setRiderKey] = useState("");
+   132→  const [loadingPortal, setLoadingPortal] = useState(false);
+   133→  const [portalError, setPortalError] = useState<string | null>(null);
+   134→
+   135→  // Portal + data
+   136→  const [portal, setPortal] = useState<RiderPortal | null>(null);
+   137→  const [orders, setOrders] = useState<Order[]>([]);
+   138→  const [serverNotifications, setServerNotifications] = useState<AppNotification[]>(
+   139→    []
+   140→  );
+   141→
+   142→  // Editable profile fields
+   143→  const [plateDraft, setPlateDraft] = useState("");
+   144→  const [savingPlate, setSavingPlate] = useState(false);
+   145→
+   146→  // Online toggle in-flight
+   147→  const [togglingOnline, setTogglingOnline] = useState(false);
+   148→
+   149→  // Realtime presence — only register when the rider is online.
+   150→  const me = useMemo(() => {
+   151→    if (!riderKey || !portal?.isOnline) return null;
+   152→    return {
+   153→      kind: "rider" as const,
+   154→      id: riderKey,
+   155→      name: portal.fullName || riderKey,
+   156→    };
+   157→  }, [riderKey, portal?.isOnline, portal?.fullName]);
+   158→  const { connected, presence, notifications: socketNotifications } =
+   159→    useRealtime(me);
+   160→
+   161→  // ---- OTP Login ----
+   162→  const handleOtpVerified = useCallback(async (phone: string, token: string) => {
+   163→    // Use original phone format (07xx) as riderKey to match seeded rider data
+   164→    const key = phone.replace(/\s/g, "");
+   165→    setPortalTokenState(token);
+   166→    setLoadingPortal(true);
+   167→    setPortalError(null);
+   168→    try {
+   169→      const res = await fetch(
+   170→        `/api/portal/rider?riderKey=${encodeURIComponent(key)}`,
+   171→        { headers: { "x-portal-token": token } }
+   172→      );
+   173→      if (!res.ok) {
+   174→        const j = await res.json().catch(() => ({}));
+   175→        throw new Error(j.error || `Failed (${res.status})`);
+   176→      }
+   177→      const data = (await res.json()) as { portal: RiderPortal };
+   178→      setPortal(data.portal);
+   179→      setPlateDraft(data.portal.plate || "");
+   180→      setRiderKey(key);
+   181→      toast({
+   182→        title: `Karibu, ${data.portal.fullName || "rider"}!`,
+   183→        description: "You're signed in to the rider portal.",
+   184→      });
+   185→    } catch (e) {
+   186→      setPortalError(
+   187→        e instanceof Error ? e.message : "Could not load rider portal."
+   188→      );
+   189→      setPortalTokenState(null);
+   190→    } finally {
+   191→      setLoadingPortal(false);
+   192→    }
+   193→  }, [toast]);
+   194→
+   195→  const handleSignOut = useCallback(() => {
+   196→    setRiderKey("");
+   197→    setPortal(null);
+   198→    setOrders([]);
+   199→    setServerNotifications([]);
+   200→    setPortalError(null);
+   201→    setPortalTokenState(null);
+   202→  }, []);
+   203→
+   204→  // ---- Loaders ----
+   205→  const loadPortal = useCallback(async (key: string) => {
+   206→    try {
+   207→      const res = await fetch(
+   208→        `/api/portal/rider?riderKey=${encodeURIComponent(key)}`
+   209→      );
+   210→      if (!res.ok) return;
+   211→      const data = (await res.json()) as { portal: RiderPortal };
+   212→      setPortal(data.portal);
+   213→      setPlateDraft(data.portal.plate || "");
+   214→    } catch {
+   215→      // best-effort
+   216→    }
+   217→  }, []);
+   218→
+   219→  const loadNotifications = useCallback(async (key: string) => {
+   220→    try {
+   221→      const res = await fetch(
+   222→        `/api/notifications?recipientType=RIDER&recipientId=${encodeURIComponent(
+   223→          key
+   224→        )}`
+   225→      );
+   226→      if (!res.ok) return;
+   227→      const data = (await res.json()) as { notifications: AppNotification[] };
+   228→      setServerNotifications(data.notifications);
+   229→    } catch {
+   230→      // best-effort
+   231→    }
+   232→  }, []);
+   233→
+   234→  const loadOrders = useCallback(async (portalPhone: string) => {
+   235→    try {
+   236→      const res = await fetch("/api/orders");
+   237→      if (!res.ok) return;
+   238→      const data = (await res.json()) as { orders: Order[] };
+   239→      const target = normPhone(portalPhone);
+   240→      const mine = data.orders.filter(
+   241→        (o) => o.rider && normPhone(o.rider.phone) === target
+   242→      );
+   243→      setOrders(mine);
+   244→    } catch {
+   245→      // best-effort
+   246→    }
+   247→  }, []);
+   248→
+   249→  // Initial pull right after login.
+   250→  useEffect(() => {
+   251→    if (!riderKey || !portal) return;
+   252→    void loadNotifications(riderKey);
+   253→    void loadOrders(portal.phone);
+   254→  }, [riderKey, portal, loadNotifications, loadOrders]);
+   255→
+   256→  // Poll notifications + assigned deliveries every 15s.
+   257→  useEffect(() => {
+   258→    if (!riderKey || !portal) return;
+   259→    const id = setInterval(() => {
+   260→      void loadNotifications(riderKey);
+   261→      void loadOrders(portal.phone);
+   262→    }, 15000);
+   263→    return () => clearInterval(id);
+   264→  }, [riderKey, portal, loadNotifications, loadOrders]);
+   265→
+   266→  // ---- Online/offline toggle ----
+   267→  const toggleOnline = useCallback(
+   268→    async (next: boolean) => {
+   269→      if (!riderKey || !portal) return;
+   270→      setTogglingOnline(true);
+   271→      // Optimistic flip
+   272→      setPortal({ ...portal, isOnline: next });
+   273→      try {
+   274→        const res = await fetch("/api/portal/rider", {
+   275→          method: "PATCH",
+   276→          headers: { "content-type": "application/json" },
+   277→          body: JSON.stringify({ riderKey, isOnline: next }),
+   278→        });
+   279→        if (!res.ok) throw new Error(`Failed (${res.status})`);
+   280→        const data = (await res.json()) as { portal: RiderPortal };
+   281→        setPortal(data.portal);
+   282→        toast({
+   283→          title: next ? "You're online 🛵" : "You're offline",
+   284→          description: next
+   285→            ? "Ready for dispatch — new orders will ping you."
+   286→            : "No new deliveries will be assigned.",
+   287→        });
+   288→      } catch {
+   289→        // Revert on failure
+   290→        setPortal({ ...portal, isOnline: !next });
+   291→        toast({
+   292→          title: "Could not update status",
+   293→          description: "Please try again.",
+   294→        });
+   295→      } finally {
+   296→        setTogglingOnline(false);
+   297→      }
+   298→    },
+   299→    [riderKey, portal, toast]
+   300→  );
+   301→
+   302→  // ---- Save plate on blur ----
+   303→  const savePlate = useCallback(async () => {
+   304→    if (!riderKey || !portal) return;
+   305→    const trimmed = plateDraft.trim().toUpperCase();
+   306→    if (trimmed === (portal.plate || "").toUpperCase()) return;
+   307→    setSavingPlate(true);
+   308→    try {
+   309→      const res = await fetch("/api/portal/rider", {
+   310→        method: "PATCH",
+   311→        headers: { "content-type": "application/json" },
+   312→        body: JSON.stringify({ riderKey, plate: trimmed }),
+   313→      });
+   314→      if (!res.ok) throw new Error(`Failed (${res.status})`);
+   315→      const data = (await res.json()) as { portal: RiderPortal };
+   316→      setPortal(data.portal);
+   317→      setPlateDraft(data.portal.plate || "");
+   318→      toast({
+   319→        title: "Plate updated",
+   320→        description: trimmed || "Plate cleared",
+   321→      });
+   322→    } catch {
+   323→      toast({
+   324→        title: "Could not save plate",
+   325→        description: "Please try again.",
+   326→      });
+   327→    } finally {
+   328→      setSavingPlate(false);
+   329→    }
+   330→  }, [riderKey, portal, plateDraft, toast]);
+   331→
+   332→  // ---- Mark notification as read ----
+   333→  const markRead = useCallback((n: AppNotification) => {
+   334→    if (n.read) return;
+   335→    setServerNotifications((prev) =>
+   336→      prev.map((x) => (x.id === n.id ? { ...x, read: true } : x))
+   337→    );
+   338→    void fetch("/api/notifications/read", {
+   339→      method: "POST",
+   340→      headers: { "content-type": "application/json" },
+   341→      body: JSON.stringify({ id: n.id }),
+   342→    }).catch(() => {});
+   343→  }, []);
+   344→
+   345→  const markAllRead = useCallback(() => {
+   346→    if (!riderKey) return;
+   347→    setServerNotifications((prev) => prev.map((x) => ({ ...x, read: true })));
+   348→    void fetch("/api/notifications/read", {
+   349→      method: "POST",
+   350→      headers: { "content-type": "application/json" },
+   351→      body: JSON.stringify({ recipientType: "RIDER", recipientId: riderKey }),
+   352→    }).catch(() => {});
+   353→  }, [riderKey]);
+   354→
+   355→  // ---- Socket notifications → toast on new arrivals ----
+   356→  const seenNotifIds = useRef<Set<string>>(new Set());
+   357→
+   358→  // Seed the seen set from server notifications so persisted alerts (re-fetched
+   359→  // every 15s) never re-toast.
+   360→  useEffect(() => {
+   361→    for (const n of serverNotifications) seenNotifIds.current.add(n.id);
+   362→  }, [serverNotifications]);
+   363→
+   364→  useEffect(() => {
+   365→    for (const raw of socketNotifications) {
+   366→      const norm = normalizeSocketNotif(raw, riderKey);
+   367→      if (!norm) continue;
+   368→      if (seenNotifIds.current.has(norm.id)) continue;
+   369→      seenNotifIds.current.add(norm.id);
+   370→      toast({ title: norm.title, description: norm.body || undefined });
+   371→    }
+   372→  }, [socketNotifications, riderKey, toast]);
+   373→
+   374→  // ---- Derived data ----
+   375→  const rating = useMemo(() => {
+   376→    if (!riderKey) return null;
+   377→    const match = SEEDED_RIDERS.find((r) => r.phone === riderKey);
+   378→    return match ? match.rating : null;
+   379→  }, [riderKey]);
+   380→
+   381→  const activeOrders = useMemo(
+   382→    () =>
+   383→      orders.filter((o) =>
+   384→        ["PLACED", "CONFIRMED", "DISPATCHED"].includes(
+   385→          (o.status || "").toUpperCase()
+   386→        )
+   387→      ),
+   388→    [orders]
+   389→  );
+   390→
+   391→  const earnedToday = useMemo(() => {
+   392→    const startOfDay = new Date();
+   393→    startOfDay.setHours(0, 0, 0, 0);
+   394→    const cutoff = startOfDay.getTime();
+   395→    return orders
+   396→      .filter((o) => new Date(o.createdAt).getTime() >= cutoff)
+   397→      .reduce((s, o) => s + (o.driverPayout || 0), 0);
+   398→  }, [orders]);
+   399→
+   400→  const totalEarnings = useMemo(
+   401→    () =>
+   402→      orders
+   403→        .filter((o) => (o.status || "").toUpperCase() === "DELIVERED")
+   404→        .reduce((s, o) => s + (o.driverPayout || 0), 0),
+   405→    [orders]
+   406→  );
+   407→
+   408→  const unreadCount = serverNotifications.filter((n) => !n.read).length;
+   409→
+   410→  // Merge server-persisted + socket-delivered notifications (deduped, newest first).
+   411→  const mergedNotifications = useMemo(() => {
+   412→    const map = new Map<string, AppNotification>();
+   413→    for (const n of serverNotifications) map.set(n.id, n);
+   414→    for (const raw of socketNotifications) {
+   415→      const norm = normalizeSocketNotif(raw, riderKey);
+   416→      if (!norm) continue;
+   417→      if (!map.has(norm.id)) map.set(norm.id, norm);
+   418→    }
+   419→    return Array.from(map.values()).sort(
+   420→      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+   421→    );
+   422→  }, [serverNotifications, socketNotifications, riderKey]);
+   423→
+   424→  // =================== Empty state: OTP login gate ===================
+   425→  if (!riderKey || !portal) {
+   426→    if (loadingPortal) {
+   427→      return (
+   428→        <div className="flex min-h-[60vh] items-center justify-center">
+   429→          <Loader2 className="animate-spin text-brand" size={28} />
+   430→        </div>
+   431→      );
+   432→    }
+   433→    return (
+   434→      <div className="space-y-4">
+   435→        <OtpLoginGate
+   436→          kind="rider"
+   437→          icon={<Bike className="text-brand" size={26} />}
+   438→          title="Rider Portal"
+   439→          subtitle="Sign in with your phone to see assigned deliveries, live alerts, and earnings."
+   440→          placeholder="e.g. 0711 224 118"
+   441→          hint={`Demo riders: ${SEEDED_PHONE_HINTS.join(" · ")}`}
+   442→          onVerified={handleOtpVerified}
+   443→        />
+   444→        <p className="text-center text-xs text-muted-foreground">
+   445→          Want to shop instead?{" "}
+   446→          <button
+   447→            type="button"
+   448→            className="font-semibold text-brand underline-offset-2 hover:underline"
+   449→            onClick={() => onNavigate("home")}
+   450→          >
+   451→            Go to store
+   452→          </button>
+   453→        </p>
+   454→      </div>
+   455→    );
+   456→  }
+   457→
+   458→  // =================== Logged-in dashboard ===================
+   459→  return (
+   460→    <div className="space-y-5">
+   461→      {/* Header */}
+   462→      <div className="flex flex-wrap items-center justify-between gap-3">
+   463→        <div className="space-y-1">
+   464→          <div className="flex items-center gap-2">
+   465→            <Bike className="text-brand" size={24} />
+   466→            <h1 className="text-2xl font-extrabold">Rider Portal</h1>
+   467→          </div>
+   468→          <p className="text-sm text-muted-foreground">
+   469→            Welcome back,{" "}
+   470→            <span className="font-semibold text-foreground">
+   471→              {portal.fullName || "Rider"}
+   472→            </span>
+   473→            .
+   474→          </p>
+   475→        </div>
+   476→        <Button variant="outline" size="sm" onClick={handleSignOut}>
+   477→          <LogOut size={14} /> Sign out
+   478→        </Button>
+   479→      </div>
+   480→
+   481→      {/* Online toggle */}
+   482→      <Card className="flex flex-wrap items-center justify-between gap-4 p-4">
+   483→        <div className="flex items-center gap-3">
+   484→          <span
+   485→            className={`h-2.5 w-2.5 shrink-0 rounded-full animate-pulse ${
+   486→              portal.isOnline ? "bg-brand" : "bg-muted-foreground/50"
+   487→            }`}
+   488→            aria-hidden
+   489→          />
+   490→          <div className="space-y-0.5">
+   491→            <div className="flex flex-wrap items-center gap-2">
+   492→              <span className="text-sm font-semibold">
+   493→                {portal.isOnline ? "Online — ready for dispatch" : "Offline"}
+   494→              </span>
+   495→              <Badge
+   496→                className={
+   497→                  portal.isOnline
+   498→                    ? "bg-brand text-white"
+   499→                    : "bg-muted text-muted-foreground"
+   500→                }
+   501→              >
+   502→                {portal.isOnline ? "ONLINE" : "OFFLINE"}
+   503→              </Badge>
+   504→              {portal.isOnline && connected && (
+   505→                <Badge variant="outline" className="border-brand text-brand">
+   506→                  Live
+   507→                </Badge>
+   508→              )}
+   509→            </div>
+   510→            <p className="text-[11px] text-muted-foreground">
+   511→              {portal.isOnline
+   512→                ? "We'll ping you the moment a delivery is assigned."
+   513→                : "Toggle on to receive deliveries."}
+   514→            </p>
+   515→          </div>
+   516→        </div>
+   517→        <div className="flex items-center gap-2">
+   518→          <Label
+   519→            htmlFor="online-toggle"
+   520→            className="text-[11px] text-muted-foreground"
+   521→          >
+   522→            {togglingOnline ? "Updating…" : ""}
+   523→          </Label>
+   524→          <Switch
+   525→            id="online-toggle"
+   526→            checked={portal.isOnline}
+   527→            onCheckedChange={(v) => void toggleOnline(v)}
+   528→            disabled={togglingOnline}
+   529→            className="data-[state=checked]:bg-brand"
+   530→          />
+   531→        </div>
+   532→      </Card>
+   533→
+   534→      {/* Presence strip */}
+   535→      {portal.isOnline && (
+   536→        <div className="flex flex-wrap items-center gap-1.5">
+   537→          <span className="text-[11px] text-muted-foreground">Online now:</span>
+   538→          {presence
+   539→            .filter((p) => !(p.kind === "rider" && p.id === riderKey))
+   540→            .slice(0, 10)
+   541→            .map((p, i) => (
+   542→              <Badge
+   543→                key={`${p.kind}-${p.id}-${i}`}
+   544→                variant="outline"
+   545→                className={
+   546→                  p.kind === "rider"
+   547→                    ? "border-brand/40 text-brand"
+   548→                    : p.kind === "vendor"
+   549→                      ? "border-gold/40 text-gold"
+   550→                      : "text-muted-foreground"
+   551→                }
+   552→              >
+   553→                {p.kind === "rider" ? "🛵" : p.kind === "vendor" ? "🏪" : "🛡️"}{" "}
+   554→                {p.name}
+   555→              </Badge>
+   556→            ))}
+   557→          {presence.filter((p) => !(p.kind === "rider" && p.id === riderKey))
+   558→            .length === 0 && (
+   559→            <span className="text-[11px] text-muted-foreground">
+   560→              just you for now
+   561→            </span>
+   562→          )}
+   563→        </div>
+   564→      )}
+   565→
+   566→      {/* Profile + Earnings */}
+   567→      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+   568→        {/* Profile */}
+   569→        <Card className="space-y-3 p-5 lg:col-span-2">
+   570→          <div className="flex items-center justify-between">
+   571→            <div className="flex items-center gap-2">
+   572→              <User className="text-brand" size={18} />
+   573→              <h2 className="text-sm font-bold">Profile</h2>
+   574→            </div>
+   575→            {rating !== null && (
+   576→              <span className="inline-flex items-center gap-1 text-sm">
+   577→                <Star size={14} className="fill-gold text-gold" />
+   578→                <span className="font-bold">{rating.toFixed(1)}</span>
+   579→                <span className="text-[11px] text-muted-foreground">
+   580→                  rider rating
+   581→                </span>
+   582→              </span>
+   583→            )}
+   584→          </div>
+   585→          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   586→            <div className="space-y-0.5">
+   587→              <Label className="text-[11px] text-muted-foreground">Full name</Label>
+   588→              <div className="text-sm font-semibold">
+   589→                {portal.fullName || "—"}
+   590→              </div>
+   591→            </div>
+   592→            <div className="space-y-0.5">
+   593→              <Label className="text-[11px] text-muted-foreground">Phone</Label>
+   594→              <div className="inline-flex items-center gap-1 text-sm font-semibold">
+   595→                <Phone size={12} className="text-muted-foreground" />
+   596→                {portal.phone}
+   597→              </div>
+   598→            </div>
+   599→            <div className="space-y-1 sm:col-span-2">
+   600→              <Label
+   601→                htmlFor="plate"
+   602→                className="text-[11px] text-muted-foreground"
+   603→              >
+   604→                Number plate
+   605→                {savingPlate && (
+   606→                  <span className="ml-1 text-muted-foreground">· saving…</span>
+   607→                )}
+   608→              </Label>
+   609→              <Input
+   610→                id="plate"
+   611→                value={plateDraft}
+   612→                onChange={(e) => setPlateDraft(e.target.value)}
+   613→                onBlur={() => void savePlate()}
+   614→                placeholder="e.g. KMEA 224B"
+   615→                className="font-mono uppercase"
+   616→              />
+   617→            </div>
+   618→            <div className="space-y-0.5 sm:col-span-2">
+   619→              <Label className="text-[11px] text-muted-foreground">
+   620→                Last seen
+   621→              </Label>
+   622→              <div className="inline-flex items-center gap-1 text-sm">
+   623→                <Clock size={12} className="text-muted-foreground" />
+   624→                {portal.lastSeen
+   625→                  ? new Date(portal.lastSeen).toLocaleString("en-KE", {
+   626→                      day: "numeric",
+   627→                      month: "short",
+   628→                      hour: "2-digit",
+   629→                      minute: "2-digit",
+   630→                    })
+   631→                  : "—"}
+   632→              </div>
+   633→            </div>
+   634→          </div>
+   635→        </Card>
+   636→
+   637→        {/* Earnings summary */}
+   638→        <Card className="space-y-2 border-brand/30 bg-brand-light p-5">
+   639→          <div className="flex items-center gap-2">
+   640→            <Wallet className="text-brand" size={18} />
+   641→            <h2 className="text-sm font-bold text-brand">Earnings</h2>
+   642→          </div>
+   643→          <div>
+   644→            <div className="text-[11px] text-muted-foreground">
+   645→              Lifetime payout (delivered)
+   646→            </div>
+   647→            <div className="text-2xl font-extrabold text-brand">
+   648→              {KES(totalEarnings)}
+   649→            </div>
+   650→          </div>
+   651→          <div className="flex items-center justify-between text-[11px]">
+   652→            <span className="text-muted-foreground">Earned today</span>
+   653→            <span className="font-semibold text-foreground">
+   654→              {KES(earnedToday)}
+   655→            </span>
+   656→          </div>
+   657→          <div className="inline-flex items-center gap-1 rounded-md bg-white/60 px-2 py-1 text-[11px] text-brand">
+   658→            <Zap size={11} />
+   659→            10% platform levy deducted
+   660→          </div>
+   661→        </Card>
+   662→      </div>
+   663→
+   664→      {/* Deliveries + Notifications */}
+   665→      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+   666→        {/* Assigned deliveries */}
+   667→        <Card className="space-y-3 p-4">
+   668→          <div className="flex flex-wrap items-center justify-between gap-2">
+   669→            <div className="flex items-center gap-2">
+   670→              <Truck className="text-brand" size={18} />
+   671→              <h2 className="text-sm font-bold">Assigned deliveries</h2>
+   672→            </div>
+   673→            <Badge className="bg-brand-light text-brand">
+   674→              {activeOrders.length} active · {KES(earnedToday)} today
+   675→            </Badge>
+   676→          </div>
+   677→          {orders.length === 0 ? (
+   678→            <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-10 text-center">
+   679→              <div className="text-4xl" aria-hidden>
+   680→                🛵
+   681→              </div>
+   682→              <div className="mt-2 text-sm font-semibold">
+   683→                No deliveries yet
+   684→              </div>
+   685→              <p className="text-xs text-muted-foreground">
+   686→                When an order is dispatched to you, it'll show up here
+   687→                automatically.
+   688→              </p>
+   689→            </div>
+   690→          ) : (
+   691→            <div className="wb-scroll max-h-96 space-y-2 overflow-y-auto pr-1">
+   692→              {orders.map((o) => {
+   693→                const id = o.id.slice(-8).toUpperCase();
+   694→                return (
+   695→                  <div
+   696→                    key={o.id}
+   697→                    className="space-y-2 rounded-xl border border-border bg-card p-3"
+   698→                  >
+   699→                    <div className="flex items-center justify-between">
+   700→                      <span className="font-mono text-xs font-semibold">
+   701→                        #{id}
+   702→                      </span>
+   703→                      <span
+   704→                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${statusPillClass(
+   705→                          o.status
+   706→                        )}`}
+   707→                      >
+   708→                        {o.status}
+   709→                      </span>
+   710→                    </div>
+   711→                    <div className="flex items-center gap-2">
+   712→                      <span className="text-lg" aria-hidden>
+   713→                        {o.vendor.emoji}
+   714→                      </span>
+   715→                      <div className="min-w-0 flex-1">
+   716→                        <div className="truncate text-sm font-semibold">
+   717→                          {o.customerName}
+   718→                        </div>
+   719→                        <div className="truncate text-[11px] text-muted-foreground">
+   720→                          {o.vendor.name}
+   721→                        </div>
+   722→                      </div>
+   723→                      <div className="text-right">
+   724→                        <div className="text-sm font-extrabold text-brand">
+   725→                          {KES(o.total)}
+   726→                        </div>
+   727→                        <div className="text-[10px] text-muted-foreground">
+   728→                          order total
+   729→                        </div>
+   730→                      </div>
+   731→                    </div>
+   732→                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+   733→                      <span className="inline-flex items-center gap-1">
+   734→                        <MapPin size={11} /> {o.location}
+   735→                      </span>
+   736→                    </div>
+   737→                    <div className="flex items-center justify-between gap-2 border-t border-border pt-2 text-[11px]">
+   738→                      <span className="text-muted-foreground">Your payout</span>
+   739→                      <span className="font-bold text-mpesa">
+   740→                        {KES(o.driverPayout || 0)}
+   741→                      </span>
+   742→                    </div>
+   743→                    <div className="flex items-center justify-between gap-2 text-[11px]">
+   744→                      <span className="text-muted-foreground">
+   745→                        Platform levy (10%)
+   746→                      </span>
+   747→                      <span className="text-muted-foreground">
+   748→                        {KES(o.driverLevy || 0)}
+   749→                      </span>
+   750→                    </div>
+   751→                  </div>
+   752→                );
+   753→              })}
+   754→            </div>
+   755→          )}
+   756→        </Card>
+   757→
+   758→        {/* Notifications feed */}
+   759→        <Card className="space-y-3 p-4">
+   760→          <div className="flex flex-wrap items-center justify-between gap-2">
+   761→            <div className="flex items-center gap-2">
+   762→              <Bell className="text-brand" size={18} />
+   763→              <h2 className="text-sm font-bold">Alerts</h2>
+   764→              {unreadCount > 0 && (
+   765→                <Badge className="bg-gold text-white">{unreadCount} new</Badge>
+   766→              )}
+   767→            </div>
+   768→            {unreadCount > 0 && (
+   769→              <Button variant="ghost" size="sm" onClick={markAllRead}>
+   770→                <CheckCheck size={14} /> Mark all read
+   771→              </Button>
+   772→            )}
+   773→          </div>
+   774→          {mergedNotifications.length === 0 ? (
+   775→            <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-10 text-center">
+   776→              <div className="text-4xl" aria-hidden>
+   777→                🔔
+   778→              </div>
+   779→              <div className="mt-2 text-sm font-semibold">No alerts yet</div>
+   780→              <p className="text-xs text-muted-foreground">
+   781→                Dispatch alerts and order updates will appear here in real time.
+   782→              </p>
+   783→            </div>
+   784→          ) : (
+   785→            <div className="wb-scroll max-h-96 space-y-2 overflow-y-auto pr-1">
+   786→              {mergedNotifications.map((n) => (
+   787→                <button
+   788→                  key={n.id}
+   789→                  type="button"
+   790→                  onClick={() => markRead(n)}
+   791→                  className={`w-full rounded-xl border p-3 text-left transition-colors ${
+   792→                    n.read
+   793→                      ? "border-border bg-card"
+   794→                      : "border-brand/40 bg-brand-light/40 hover:bg-brand-light"
+   795→                  }`}
+   796→                >
+   797→                  <div className="flex items-center justify-between gap-2">
+   798→                    <div className="flex min-w-0 items-center gap-2">
+   799→                      {!n.read && (
+   800→                        <span
+   801→                          className="h-2 w-2 shrink-0 rounded-full bg-brand"
+   802→                          aria-label="Unread"
+   803→                        />
+   804→                      )}
+   805→                      <span className="truncate text-sm font-semibold">
+   806→                        {n.title}
+   807→                      </span>
+   808→                    </div>
+   809→                    <span className="shrink-0 text-[10px] text-muted-foreground">
+   810→                      {relativeTime(n.createdAt)}
+   811→                    </span>
+   812→                  </div>
+   813→                  {n.body && (
+   814→                    <p className="mt-1 line-clamp-2 text-[12px] text-muted-foreground">
+   815→                      {n.body}
+   816→                    </p>
+   817→                  )}
+   818→                </button>
+   819→              ))}
+   820→            </div>
+   821→          )}
+   822→        </Card>
+   823→      </div>
+   824→    </div>
+   825→  );
+   826→}
+   827→
+   828→export default RiderPortalPage;
+   829→

@@ -1,0 +1,972 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import {
+     5→  ArrowLeft,
+     6→  Bell,
+     7→  BellOff,
+     8→  CheckCheck,
+     9→  Clock,
+    10→  Loader2,
+    11→  MapPin,
+    12→  MessageSquare,
+    13→  Phone,
+    14→  Power,
+    15→  Send,
+    16→  ShoppingBag,
+    17→  Star,
+    18→  Store,
+    19→  Users,
+    20→  LogOut,
+    21→} from "lucide-react";
+    22→import { Button } from "@/components/ui/button";
+    23→import { Card, CardContent } from "@/components/ui/card";
+    24→import { Input } from "@/components/ui/input";
+    25→import { Label } from "@/components/ui/label";
+    26→import { Badge } from "@/components/ui/badge";
+    27→import { KES } from "../logo";
+    28→import { useRealtime } from "@/hooks/use-realtime";
+    29→import { useToast } from "@/hooks/use-toast";
+    30→import { cn } from "@/lib/utils";
+    31→import { OtpLoginGate } from "../ui/otp-login-gate";
+    32→import type {
+    33→  AppNotification,
+    34→  ChatMessage,
+    35→  PresenceEntry,
+    36→  VendorPortal,
+    37→} from "@/lib/types";
+    38→
+    39→// Portal session token (set after OTP verification).
+    40→const PORTAL_TOKEN_KEY = "wb_vendor_portal_token";
+    41→function getPortalToken(): string | null {
+    42→  if (typeof window === "undefined") return null;
+    43→  try { return sessionStorage.getItem(PORTAL_TOKEN_KEY); } catch { return null; }
+    44→}
+    45→function setPortalToken(t: string | null) {
+    46→  if (typeof window === "undefined") return;
+    47→  try { if (t) sessionStorage.setItem(PORTAL_TOKEN_KEY, t); else sessionStorage.removeItem(PORTAL_TOKEN_KEY); } catch {}
+    48→}
+    49→
+    50→// ---------- helpers ----------
+    51→function relativeTime(iso: string): string {
+    52→  const then = new Date(iso).getTime();
+    53→  if (Number.isNaN(then)) return "";
+    54→  const diff = Date.now() - then;
+    55→  if (diff < 0) return "just now";
+    56→  const s = Math.floor(diff / 1000);
+    57→  if (s < 45) return "just now";
+    58→  const m = Math.floor(s / 60);
+    59→  if (m < 60) return `${m}m ago`;
+    60→  const h = Math.floor(m / 60);
+    61→  if (h < 24) return `${h}h ago`;
+    62→  const d = Math.floor(h / 24);
+    63→  if (d < 7) return `${d}d ago`;
+    64→  return new Date(iso).toLocaleDateString();
+    65→}
+    66→
+    67→function nowHHMM(): string {
+    68→  const d = new Date();
+    69→  return `${String(d.getHours()).padStart(2, "0")}:${String(
+    70→    d.getMinutes()
+    71→  ).padStart(2, "0")}`;
+    72→}
+    73→
+    74→// True if `now` falls inside the [start, end) duty window. Handles overnight
+    75→// windows (e.g. 22:00 → 06:00). Empty schedule ⇒ treat as always on duty.
+    76→function isWithinDuty(start: string, end: string, now = nowHHMM()): boolean {
+    77→  if (!start || !end) return true;
+    78→  if (start === end) return false;
+    79→  if (start < end) return now >= start && now < end;
+    80→  return now >= start || now < end; // overnight
+    81→}
+    82→
+    83→// Vendor portal auth: phone + OTP → session token → look up by phone.
+    84→
+    85→// ---------- online status dot ----------
+    86→function OnlineDot({ online }: { online: boolean }) {
+    87→  return (
+    88→    <span
+    89→      aria-hidden
+    90→      className={cn(
+    91→        "inline-block size-2.5 rounded-full",
+    92→        online
+    93→          ? "bg-brand animate-pulse"
+    94→          : "bg-muted-foreground/40"
+    95→      )}
+    96→    />
+    97→  );
+    98→}
+    99→
+   100→// ---------- main ----------
+   101→export function VendorPortalPage({
+   102→  onNavigate,
+   103→}: {
+   104→  onNavigate: (p: "home" | "basket") => void;
+   105→}) {
+   106→  const { toast } = useToast();
+   107→
+   108→  // login gate — phone + OTP auth
+   109→  const [verifiedPhone, setVerifiedPhone] = React.useState<string | null>(null);
+   110→  const [portalToken, setPortalTokenState] = React.useState<string | null>(getPortalToken);
+   111→  const [vendorId, setVendorId] = React.useState<string | null>(null);
+   112→
+   113→  // profile
+   114→  const [portal, setPortal] = React.useState<VendorPortal | null>(null);
+   115→  const [vendor, setVendor] = React.useState<{
+   116→    id: string;
+   117→    name: string;
+   118→    emoji: string;
+   119→    type: string;
+   120→    location: string;
+   121→    rating: number;
+   122→  } | null>(null);
+   123→  const [loadingProfile, setLoadingProfile] = React.useState(false);
+   124→  const [profileError, setProfileError] = React.useState<string | null>(null);
+   125→
+   126→  // editable duty / phone (local until blur → PATCH)
+   127→  const [dutyStart, setDutyStart] = React.useState("");
+   128→  const [dutyEnd, setDutyEnd] = React.useState("");
+   129→  const [phoneInput, setPhoneInput] = React.useState("");
+   130→  const [patching, setPatching] = React.useState(false);
+   131→
+   132→  // notifications
+   133→  const [notifications, setNotifications] = React.useState<AppNotification[]>(
+   134→    []
+   135→  );
+   136→  const [loadingNotifs, setLoadingNotifs] = React.useState(false);
+   137→  const [notifError, setNotifError] = React.useState<string | null>(null);
+   138→
+   139→  // chat
+   140→  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
+   141→  const [chatDraft, setChatDraft] = React.useState("");
+   142→  const [loadingChat, setLoadingChat] = React.useState(false);
+   143→  const [chatError, setChatError] = React.useState<string | null>(null);
+   144→  const [sending, setSending] = React.useState(false);
+   145→  const chatListRef = React.useRef<HTMLDivElement>(null);
+   146→
+   147→  // ---- realtime: register presence only when the vendor is online ----
+   148→  const isOnline = portal?.isOnline ?? false;
+   149→  const me = React.useMemo(() => {
+   150→    if (!vendorId || !portal || !isOnline) return null;
+   151→    return {
+   152→      kind: "vendor" as const,
+   153→      id: vendorId,
+   154→      name: portal.shopName,
+   155→    };
+   156→  }, [vendorId, portal, isOnline]);
+   157→  const { connected, presence, notifications: rtNotifications, socket } =
+   158→    useRealtime(me);
+   159→
+   160→  // ---- merge realtime notifications into the feed + toast new ones ----
+   161→  const seenRtKeys = React.useRef<Set<string>>(new Set());
+   162→  React.useEffect(() => {
+   163→    if (!rtNotifications || rtNotifications.length === 0) return;
+   164→    const incoming = rtNotifications as Array<Record<string, unknown>>;
+   165→    // Process oldest→newest so toasts fire in arrival order.
+   166→    for (let i = incoming.length - 1; i >= 0; i--) {
+   167→      const n = incoming[i];
+   168→      const key = String(
+   169→        n.at ?? n.orderId ?? n.type ?? `${i}-${n.customerName ?? ""}`
+   170→      );
+   171→      if (seenRtKeys.current.has(key)) continue;
+   172→      seenRtKeys.current.add(key);
+   173→
+   174→      const type = String(n.type ?? "SYSTEM");
+   175→      const orderId = n.orderId ? String(n.orderId) : null;
+   176→      const customerName = n.customerName
+   177→        ? String(n.customerName)
+   178→        : "a customer";
+   179→      const total = typeof n.total === "number" ? n.total : null;
+   180→
+   181→      const title = type === "NEW_ORDER" ? "New order!" : "Notification";
+   182→      const body = total
+   183→        ? `Order ${orderId ?? ""} from ${customerName} — ${KES(total)}`.trim()
+   184→        : `Order ${orderId ?? ""} from ${customerName}`.trim();
+   185→
+   186→      const synth: AppNotification = {
+   187→        id: `rt-${key}`,
+   188→        recipientType: "VENDOR",
+   189→        recipientId: vendorId ?? "",
+   190→        type,
+   191→        title,
+   192→        body,
+   193→        read: false,
+   194→        orderId,
+   195→        createdAt: n.at ? String(n.at) : new Date().toISOString(),
+   196→      };
+   197→
+   198→      setNotifications((prev) =>
+   199→        prev.some((p) => p.id === synth.id) ? prev : [synth, ...prev]
+   200→      );
+   201→      toast({ title, description: body });
+   202→    }
+   203→  }, [rtNotifications, vendorId, toast]);
+   204→
+   205→  // ---- loaders ----
+   206→  const loadProfile = React.useCallback(async (vid: string, token?: string | null) => {
+   207→    setLoadingProfile(true);
+   208→    setProfileError(null);
+   209→    try {
+   210→      const headers: Record<string, string> = {};
+   211→      if (token) headers["x-portal-token"] = token;
+   212→      const res = await fetch(
+   213→        `/api/portal/vendor?vendorId=${encodeURIComponent(vid)}`,
+   214→        { headers }
+   215→      );
+   216→      if (!res.ok) {
+   217→        const j = await res.json().catch(() => ({}));
+   218→        throw new Error(j.error || `Failed (${res.status})`);
+   219→      }
+   220→      const data = await res.json();
+   221→      setPortal(data.portal);
+   222→      setVendor(data.vendor);
+   223→      setDutyStart(data.portal.dutyStart || "");
+   224→      setDutyEnd(data.portal.dutyEnd || "");
+   225→      setPhoneInput(data.portal.phone || "");
+   226→    } catch (e) {
+   227→      setProfileError(
+   228→        e instanceof Error ? e.message : "Failed to load portal profile"
+   229→      );
+   230→    } finally {
+   231→      setLoadingProfile(false);
+   232→    }
+   233→  }, []);
+   234→
+   235→  const loadNotifications = React.useCallback(async (vid: string) => {
+   236→    setLoadingNotifs(true);
+   237→    setNotifError(null);
+   238→    try {
+   239→      const res = await fetch(
+   240→        `/api/notifications?recipientType=VENDOR&recipientId=${encodeURIComponent(
+   241→          vid
+   242→        )}`
+   243→      );
+   244→      if (!res.ok) throw new Error(`Failed (${res.status})`);
+   245→      const data = await res.json();
+   246→      setNotifications(data.notifications || []);
+   247→    } catch (e) {
+   248→      setNotifError(
+   249→        e instanceof Error ? e.message : "Failed to load notifications"
+   250→      );
+   251→    } finally {
+   252→      setLoadingNotifs(false);
+   253→    }
+   254→  }, []);
+   255→
+   256→  const loadChat = React.useCallback(async (vid: string) => {
+   257→    setLoadingChat(true);
+   258→    setChatError(null);
+   259→    try {
+   260→      const res = await fetch(
+   261→        `/api/chat?channel=vendor:${encodeURIComponent(vid)}`
+   262→      );
+   263→      if (!res.ok) throw new Error(`Failed (${res.status})`);
+   264→      const data = await res.json();
+   265→      setMessages(data.messages || []);
+   266→    } catch (e) {
+   267→      setChatError(e instanceof Error ? e.message : "Failed to load chat");
+   268→    } finally {
+   269→      setLoadingChat(false);
+   270→    }
+   271→  }, []);
+   272→
+   273→  // initial load on login
+   274→  React.useEffect(() => {
+   275→    if (!vendorId) return;
+   276→    loadProfile(vendorId);
+   277→    loadNotifications(vendorId);
+   278→    loadChat(vendorId);
+   279→  }, [vendorId, loadProfile, loadNotifications, loadChat]);
+   280→
+   281→  // poll notifications every 15s
+   282→  React.useEffect(() => {
+   283→    if (!vendorId) return;
+   284→    const t = setInterval(() => loadNotifications(vendorId), 15000);
+   285→    return () => clearInterval(t);
+   286→  }, [vendorId, loadNotifications]);
+   287→
+   288→  // listen for incoming chat messages on the socket
+   289→  React.useEffect(() => {
+   290→    if (!socket) return;
+   291→    const handler = (msg: ChatMessage & { at?: string }) => {
+   292→      // Ignore our own echoed messages (senderType VENDOR + our id).
+   293→      if (msg.senderType === "VENDOR" && msg.senderId === vendorId) return;
+   294→      setMessages((prev) => {
+   295→        if (prev.some((m) => m.id === msg.id)) return prev;
+   296→        const normalized: ChatMessage = {
+   297→          id: msg.id,
+   298→          channel: msg.channel,
+   299→          senderType: msg.senderType,
+   300→          senderId: msg.senderId,
+   301→          senderName: msg.senderName,
+   302→          body: msg.body,
+   303→          read: msg.read ?? false,
+   304→          createdAt: msg.createdAt || msg.at || new Date().toISOString(),
+   305→        };
+   306→        return [...prev, normalized];
+   307→      });
+   308→    };
+   309→    socket.on("chat:message", handler);
+   310→    return () => {
+   311→      socket.off("chat:message", handler);
+   312→    };
+   313→  }, [socket, vendorId]);
+   314→
+   315→  // auto-scroll chat to bottom on new messages
+   316→  React.useEffect(() => {
+   317→    const el = chatListRef.current;
+   318→    if (el) el.scrollTop = el.scrollHeight;
+   319→  }, [messages]);
+   320→
+   321→  // ---- actions ----
+   322→  async function patchPortal(patch: {
+   323→    isOnline?: boolean;
+   324→    dutyStart?: string;
+   325→    dutyEnd?: string;
+   326→    phone?: string;
+   327→  }) {
+   328→    if (!vendorId || !portal) return null;
+   329→    setPatching(true);
+   330→    try {
+   331→      const res = await fetch("/api/portal/vendor", {
+   332→        method: "PATCH",
+   333→        headers: { "Content-Type": "application/json" },
+   334→        body: JSON.stringify({ vendorId, ...patch }),
+   335→      });
+   336→      if (!res.ok) {
+   337→        const j = await res.json().catch(() => ({}));
+   338→        throw new Error(j.error || `Failed (${res.status})`);
+   339→      }
+   340→      const data = await res.json();
+   341→      setPortal(data.portal);
+   342→      return data.portal as VendorPortal;
+   343→    } catch (e) {
+   344→      toast({
+   345→        title: "Update failed",
+   346→        description: e instanceof Error ? e.message : "Unknown error",
+   347→        variant: "destructive",
+   348→      });
+   349→      return null;
+   350→    } finally {
+   351→      setPatching(false);
+   352→    }
+   353→  }
+   354→
+   355→  async function toggleOnline() {
+   356→    if (!portal) return;
+   357→    const next = !portal.isOnline;
+   358→    const onDuty = isWithinDuty(dutyStart, dutyEnd);
+   359→    // optimistic
+   360→    setPortal({ ...portal, isOnline: next });
+   361→    await patchPortal({ isOnline: next });
+   362→    toast({
+   363→      title: next ? "You're online" : "You're offline",
+   364→      description: next
+   365→        ? onDuty
+   366→          ? "Shoppers can now see your shop as available."
+   367→          : "Online outside duty hours — shoppers can still reach you."
+   368→        : "You won't receive new order pings until you return.",
+   369→    });
+   370→  }
+   371→
+   372→  function handleDutyBlur() {
+   373→    if (!portal) return;
+   374→    if (dutyStart === portal.dutyStart && dutyEnd === portal.dutyEnd) return;
+   375→    patchPortal({ dutyStart, dutyEnd });
+   376→  }
+   377→
+   378→  function handlePhoneBlur() {
+   379→    if (!portal) return;
+   380→    if (phoneInput === portal.phone) return;
+   381→    patchPortal({ phone: phoneInput });
+   382→  }
+   383→
+   384→  async function markRead(id: string) {
+   385→    setNotifications((prev) =>
+   386→      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+   387→    );
+   388→    try {
+   389→      await fetch("/api/notifications/read", {
+   390→        method: "POST",
+   391→        headers: { "Content-Type": "application/json" },
+   392→        body: JSON.stringify({ id }),
+   393→      });
+   394→    } catch {
+   395→      /* ignore — optimistic */
+   396→    }
+   397→  }
+   398→
+   399→  async function markAllRead() {
+   400→    if (!vendorId) return;
+   401→    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+   402→    try {
+   403→      await fetch("/api/notifications/read", {
+   404→        method: "POST",
+   405→        headers: { "Content-Type": "application/json" },
+   406→        body: JSON.stringify({
+   407→          recipientType: "VENDOR",
+   408→          recipientId: vendorId,
+   409→        }),
+   410→      });
+   411→    } catch {
+   412→      /* ignore — optimistic */
+   413→    }
+   414→  }
+   415→
+   416→  async function sendChat() {
+   417→    const body = chatDraft.trim();
+   418→    if (!body || !vendorId || !portal || sending) return;
+   419→    const channel = `vendor:${vendorId}`;
+   420→    const payload = {
+   421→      channel,
+   422→      senderType: "VENDOR",
+   423→      senderId: vendorId,
+   424→      senderName: portal.shopName,
+   425→      body,
+   426→    };
+   427→    setSending(true);
+   428→    setChatDraft("");
+   429→    try {
+   430→      const res = await fetch("/api/chat", {
+   431→        method: "POST",
+   432→        headers: { "Content-Type": "application/json" },
+   433→        body: JSON.stringify(payload),
+   434→      });
+   435→      if (!res.ok) throw new Error(`Failed (${res.status})`);
+   436→      const data = await res.json();
+   437→      const msg: ChatMessage = data.message;
+   438→      setMessages((prev) =>
+   439→        prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]
+   440→      );
+   441→      // also push via the socket so admin support receives it in real time
+   442→      if (socket) socket.emit("chat:message", payload);
+   443→    } catch (e) {
+   444→      toast({
+   445→        title: "Message failed",
+   446→        description: e instanceof Error ? e.message : "Unknown error",
+   447→        variant: "destructive",
+   448→      });
+   449→      setChatDraft(body); // restore draft
+   450→    } finally {
+   451→      setSending(false);
+   452→    }
+   453→  }
+   454→
+   455→  // ---------- OTP verified → look up vendor by phone ----------
+   456→  const handleOtpVerified = React.useCallback(async (phone: string, token: string) => {
+   457→    setVerifiedPhone(phone);
+   458→    setPortalTokenState(token);
+   459→    setPortalToken(token);
+   460→    // Look up vendor portal by phone
+   461→    setLoadingProfile(true);
+   462→    setProfileError(null);
+   463→    try {
+   464→      const res = await fetch(`/api/portal/vendor?phone=${encodeURIComponent(phone)}`, {
+   465→        headers: { "x-portal-token": token },
+   466→      });
+   467→      if (!res.ok) {
+   468→        const j = await res.json().catch(() => ({}));
+   469→        throw new Error(j.error || `Failed (${res.status})`);
+   470→      }
+   471→      const data = await res.json();
+   472→      if (!data.portal || !data.vendor) {
+   473→        throw new Error("No vendor found for this phone. Please register as a vendor first.");
+   474→      }
+   475→      setVendorId(data.vendor.id);
+   476→      setPortal(data.portal);
+   477→      setVendor(data.vendor);
+   478→      setDutyStart(data.portal.dutyStart || "");
+   479→      setDutyEnd(data.portal.dutyEnd || "");
+   480→      setPhoneInput(data.portal.phone || "");
+   481→      toast({ title: `Karibu, ${data.vendor.name}!`, description: "You're signed in to the vendor portal." });
+   482→    } catch (e) {
+   483→      setProfileError(e instanceof Error ? e.message : "Could not load vendor portal.");
+   484→      setPortalTokenState(null);
+   485→      setPortalToken(null);
+   486→    } finally {
+   487→      setLoadingProfile(false);
+   488→    }
+   489→  }, [toast]);
+   490→
+   491→  // Auto-load profile if we have a vendorId
+   492→  React.useEffect(() => {
+   493→    if (vendorId && !portal) void loadProfile(vendorId, portalToken);
+   494→  }, [vendorId, portal, portalToken, loadProfile]);
+   495→
+   496→  const handleSignOut = React.useCallback(() => {
+   497→    setVendorId(null);
+   498→    setPortal(null);
+   499→    setVendor(null);
+   500→    setVerifiedPhone(null);
+   501→    setPortalTokenState(null);
+   502→    setPortalToken(null);
+   503→    setNotifications([]);
+   504→    setMessages([]);
+   505→    setProfileError(null);
+   506→  }, []);
+   507→
+   508→  // ---------- gate ----------
+   509→  if (!vendorId) {
+   510→    if (loadingProfile) {
+   511→      return (
+   512→        <div className="flex min-h-[60vh] items-center justify-center">
+   513→          <Loader2 className="animate-spin text-brand" size={28} />
+   514→        </div>
+   515→      );
+   516→    }
+   517→    if (profileError) {
+   518→      return (
+   519→        <OtpLoginGate
+   520→          kind="vendor"
+   521→          icon={<Store className="text-brand" size={26} />}
+   522→          title="Vendor Portal"
+   523→          subtitle="Sign in with your phone to manage your shop, orders and support chat."
+   524→          placeholder="e.g. 0712 345 678"
+   525→          onVerified={handleOtpVerified}
+   526→        />
+   527→      );
+   528→    }
+   529→    return (
+   530→      <OtpLoginGate
+   531→        kind="vendor"
+   532→        icon={<Store className="text-brand" size={26} />}
+   533→        title="Vendor Portal"
+   534→        subtitle="Sign in with your phone to manage your shop, orders and support chat."
+   535→        placeholder="e.g. 0712 345 678"
+   536→        onVerified={handleOtpVerified}
+   537→      />
+   538→    );
+   539→  }
+   540→
+   541→  const unreadCount = notifications.filter((n) => !n.read).length;
+   542→  const onDuty = isWithinDuty(dutyStart, dutyEnd);
+   543→  const channel = `vendor:${vendorId}`;
+   544→  const otherPresence = presence.filter(
+   545→    (p) => !(p.kind === "vendor" && p.id === vendorId)
+   546→  );
+   547→
+   548→  return (
+   549→    <div className="space-y-5">
+   550→      {/* top bar */}
+   551→      <div className="flex items-center justify-between gap-3">
+   552→        <Button
+   553→          variant="ghost"
+   554→          size="sm"
+   555→          className="text-muted-foreground"
+   556→          onClick={() => onNavigate("home")}
+   557→        >
+   558→          <ArrowLeft size={16} /> Back to shop
+   559→        </Button>
+   560→        <Button
+   561→          variant="outline"
+   562→          size="sm"
+   563→          className="text-brand"
+   564→          onClick={() => onNavigate("basket")}
+   565→        >
+   566→          <ShoppingBag size={16} /> Smart Basket
+   567→        </Button>
+   568→      </div>
+   569→
+   570→      {/* shop identity + online toggle */}
+   571→      <Card>
+   572→        <CardContent className="p-6">
+   573→          {loadingProfile && !portal ? (
+   574→            <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+   575→              <Loader2 size={18} className="animate-spin" /> Loading portal…
+   576→            </div>
+   577→          ) : profileError ? (
+   578→            <div className="space-y-3 py-4">
+   579→              <p className="text-sm text-destructive">{profileError}</p>
+   580→              <Button
+   581→                variant="outline"
+   582→                size="sm"
+   583→                onClick={handleSignOut}
+   584→              >
+   585→                Sign out
+   586→              </Button>
+   587→            </div>
+   588→          ) : (
+   589→            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+   590→              <div className="flex items-center gap-4">
+   591→                <div className="flex size-14 items-center justify-center rounded-xl bg-brand-light text-3xl">
+   592→                  {vendor?.emoji ?? "🏪"}
+   593→                </div>
+   594→                <div>
+   595→                  <div className="flex items-center gap-2">
+   596→                    <h2 className="text-lg font-bold text-foreground">
+   597→                      {portal?.shopName ?? vendor?.name ?? "Vendor"}
+   598→                    </h2>
+   599→                    <Badge
+   600→                      variant={isOnline ? "default" : "secondary"}
+   601→                      className={cn(
+   602→                        "gap-1.5",
+   603→                        isOnline
+   604→                          ? "bg-brand text-primary-foreground"
+   605→                          : "bg-muted text-muted-foreground"
+   606→                      )}
+   607→                    >
+   608→                      <OnlineDot online={isOnline} />
+   609→                      {isOnline ? "Online" : "Offline"}
+   610→                    </Badge>
+   611→                  </div>
+   612→                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+   613→                    {vendor?.type && (
+   614→                      <span className="inline-flex items-center gap-1">
+   615→                        <Store size={12} /> {vendor.type}
+   616→                      </span>
+   617→                    )}
+   618→                    {vendor?.location && (
+   619→                      <span className="inline-flex items-center gap-1">
+   620→                        <MapPin size={12} /> {vendor.location}
+   621→                      </span>
+   622→                    )}
+   623→                    {typeof vendor?.rating === "number" && (
+   624→                      <span className="inline-flex items-center gap-1">
+   625→                        <Star size={12} className="fill-gold text-gold" />
+   626→                        {vendor.rating.toFixed(1)}
+   627→                      </span>
+   628→                    )}
+   629→                    {connected && (
+   630→                      <span className="inline-flex items-center gap-1 text-brand">
+   631→                        <span className="size-1.5 rounded-full bg-brand animate-pulse" />
+   632→                        realtime live
+   633→                      </span>
+   634→                    )}
+   635→                  </div>
+   636→                </div>
+   637→              </div>
+   638→              <Button
+   639→                onClick={toggleOnline}
+   640→                disabled={patching}
+   641→                className={cn(
+   642→                  "h-11 px-6",
+   643→                  isOnline
+   644→                    ? "bg-muted text-foreground hover:bg-muted/80"
+   645→                    : "bg-brand text-primary-foreground hover:bg-brand-dark"
+   646→                )}
+   647→              >
+   648→                {patching ? (
+   649→                  <Loader2 size={16} className="animate-spin" />
+   650→                ) : (
+   651→                  <Power size={16} />
+   652→                )}
+   653→                {isOnline ? "Go offline" : "Go online"}
+   654→              </Button>
+   655→            </div>
+   656→          )}
+   657→        </CardContent>
+   658→      </Card>
+   659→
+   660→      {/* duty hours + phone */}
+   661→      <Card>
+   662→        <CardContent className="p-6">
+   663→          <div className="mb-4 flex items-center justify-between gap-2">
+   664→            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+   665→              <Clock size={16} className="text-brand" /> Duty hours
+   666→            </h3>
+   667→            <Badge
+   668→              variant="outline"
+   669→              className={cn(
+   670→                onDuty
+   671→                  ? "border-brand/30 text-brand"
+   672→                  : "text-muted-foreground"
+   673→              )}
+   674→            >
+   675→              {dutyStart && dutyEnd
+   676→                ? onDuty
+   677→                  ? "Currently on duty"
+   678→                  : "Off duty"
+   679→                : "No schedule set"}
+   680→            </Badge>
+   681→          </div>
+   682→          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   683→            <div className="space-y-1.5">
+   684→              <Label htmlFor="duty-start" className="text-xs">
+   685→                Start
+   686→              </Label>
+   687→              <Input
+   688→                id="duty-start"
+   689→                type="time"
+   690→                value={dutyStart}
+   691→                onChange={(e) => setDutyStart(e.target.value)}
+   692→                onBlur={handleDutyBlur}
+   693→                disabled={patching}
+   694→              />
+   695→            </div>
+   696→            <div className="space-y-1.5">
+   697→              <Label htmlFor="duty-end" className="text-xs">
+   698→                End
+   699→              </Label>
+   700→              <Input
+   701→                id="duty-end"
+   702→                type="time"
+   703→                value={dutyEnd}
+   704→                onChange={(e) => setDutyEnd(e.target.value)}
+   705→                onBlur={handleDutyBlur}
+   706→                disabled={patching}
+   707→              />
+   708→            </div>
+   709→            <div className="space-y-1.5">
+   710→              <Label htmlFor="phone" className="text-xs">
+   711→                Shop phone
+   712→              </Label>
+   713→              <Input
+   714→                id="phone"
+   715→                inputMode="tel"
+   716→                placeholder="0712 345 678"
+   717→                value={phoneInput}
+   718→                onChange={(e) => setPhoneInput(e.target.value)}
+   719→                onBlur={handlePhoneBlur}
+   720→                disabled={patching}
+   721→              />
+   722→            </div>
+   723→          </div>
+   724→          {isOnline && !onDuty && dutyStart && dutyEnd && (
+   725→            <p className="mt-3 text-xs text-gold">
+   726→              You&apos;re online outside your duty window ({dutyStart}–
+   727→              {dutyEnd}). That&apos;s fine — orders will still come through.
+   728→            </p>
+   729→          )}
+   730→        </CardContent>
+   731→      </Card>
+   732→
+   733→      {/* presence strip */}
+   734→      <Card>
+   735→        <CardContent className="p-4">
+   736→          <div className="flex flex-wrap items-center gap-2">
+   737→            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+   738→              <Users size={14} /> Online now
+   739→            </span>
+   740→            {otherPresence.length === 0 ? (
+   741→              <span className="text-xs text-muted-foreground">
+   742→                No one else online right now.
+   743→              </span>
+   744→            ) : (
+   745→              otherPresence.map((p: PresenceEntry) => (
+   746→                <span
+   747→                  key={`${p.kind}:${p.id}`}
+   748→                  className={cn(
+   749→                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+   750→                    p.kind === "vendor" &&
+   751→                      "border-brand/30 bg-brand-light text-brand",
+   752→                    p.kind === "rider" &&
+   753→                      "border-gold/40 bg-gold/10 text-gold-dark",
+   754→                    p.kind === "admin" &&
+   755→                      "border-mpesa/40 bg-mpesa/10 text-mpesa"
+   756→                  )}
+   757→                >
+   758→                  <span className="size-1.5 rounded-full bg-current opacity-70" />
+   759→                  <span className="capitalize opacity-70">{p.kind}</span>
+   760→                  {p.name}
+   761→                </span>
+   762→              ))
+   763→            )}
+   764→          </div>
+   765→        </CardContent>
+   766→      </Card>
+   767→
+   768→      {/* main grid: notifications | chat */}
+   769→      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+   770→        {/* notifications */}
+   771→        <Card>
+   772→          <CardContent className="p-6">
+   773→            <div className="mb-3 flex items-center justify-between gap-2">
+   774→              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+   775→                <Bell size={16} className="text-brand" /> Order notifications
+   776→                {unreadCount > 0 && (
+   777→                  <Badge className="bg-brand text-primary-foreground">
+   778→                    {unreadCount} new
+   779→                  </Badge>
+   780→                )}
+   781→              </h3>
+   782→              {unreadCount > 0 && (
+   783→                <Button
+   784→                  variant="ghost"
+   785→                  size="sm"
+   786→                  className="h-7 text-xs text-muted-foreground"
+   787→                  onClick={markAllRead}
+   788→                >
+   789→                  <CheckCheck size={14} /> Mark all read
+   790→                </Button>
+   791→              )}
+   792→            </div>
+   793→            {notifError ? (
+   794→              <p className="py-6 text-center text-sm text-destructive">
+   795→                {notifError}
+   796→              </p>
+   797→            ) : loadingNotifs && notifications.length === 0 ? (
+   798→              <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+   799→                <Loader2 size={16} className="animate-spin" /> Loading…
+   800→              </div>
+   801→            ) : notifications.length === 0 ? (
+   802→              <div className="flex flex-col items-center gap-2 py-10 text-center">
+   803→                <BellOff className="text-muted-foreground" size={28} />
+   804→                <p className="text-sm text-muted-foreground">
+   805→                  No notifications yet. New orders will appear here instantly.
+   806→                </p>
+   807→              </div>
+   808→            ) : (
+   809→              <div className="max-h-96 space-y-2 overflow-y-auto wb-scroll pr-1">
+   810→                {notifications.map((n) => (
+   811→                  <button
+   812→                    key={n.id}
+   813→                    type="button"
+   814→                    onClick={() => !n.read && markRead(n.id)}
+   815→                    className={cn(
+   816→                      "w-full rounded-lg border p-3 text-left transition-colors",
+   817→                      n.read
+   818→                        ? "border-border bg-card hover:bg-accent/40"
+   819→                        : "border-brand/30 bg-brand-light hover:bg-brand-light/70"
+   820→                    )}
+   821→                  >
+   822→                    <div className="flex items-start justify-between gap-2">
+   823→                      <span className="text-sm font-semibold text-foreground">
+   824→                        {n.title}
+   825→                      </span>
+   826→                      <span className="shrink-0 text-[11px] text-muted-foreground">
+   827→                        {relativeTime(n.createdAt)}
+   828→                      </span>
+   829→                    </div>
+   830→                    <p className="mt-0.5 text-xs text-muted-foreground">
+   831→                      {n.body}
+   832→                    </p>
+   833→                    <div className="mt-1.5 flex items-center gap-2">
+   834→                      {n.type === "NEW_ORDER" && (
+   835→                        <Badge className="bg-brand text-primary-foreground">
+   836→                          New order
+   837→                        </Badge>
+   838→                      )}
+   839→                      {n.orderId && (
+   840→                        <span className="text-[11px] text-muted-foreground">
+   841→                          #{n.orderId}
+   842→                        </span>
+   843→                      )}
+   844→                      {!n.read && (
+   845→                        <span className="ml-auto text-[11px] font-medium text-brand">
+   846→                          Tap to mark read
+   847→                        </span>
+   848→                      )}
+   849→                    </div>
+   850→                  </button>
+   851→                ))}
+   852→              </div>
+   853→            )}
+   854→          </CardContent>
+   855→        </Card>
+   856→
+   857→        {/* chat */}
+   858→        <Card>
+   859→          <CardContent className="p-6">
+   860→            <div className="mb-3 flex items-center justify-between gap-2">
+   861→              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+   862→                <MessageSquare size={16} className="text-brand" /> Support chat
+   863→              </h3>
+   864→              <span className="text-[11px] text-muted-foreground">
+   865→                {socket ? "Live" : "Connect to chat live"}
+   866→              </span>
+   867→            </div>
+   868→            <p className="mb-3 text-xs text-muted-foreground">
+   869→              Channel{" "}
+   870→              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+   871→                {channel}
+   872→              </code>{" "}
+   873→              — message WeBizzle admin support.
+   874→            </p>
+   875→
+   876→            {chatError ? (
+   877→              <p className="py-6 text-center text-sm text-destructive">
+   878→                {chatError}
+   879→              </p>
+   880→            ) : loadingChat && messages.length === 0 ? (
+   881→              <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+   882→                <Loader2 size={16} className="animate-spin" /> Loading chat…
+   883→              </div>
+   884→            ) : (
+   885→              <div
+   886→                ref={chatListRef}
+   887→                className="max-h-96 min-h-[14rem] space-y-2 overflow-y-auto wb-scroll rounded-lg bg-muted/40 p-3 pr-1"
+   888→              >
+   889→                {messages.length === 0 ? (
+   890→                  <p className="py-8 text-center text-xs text-muted-foreground">
+   891→                    No messages yet. Say hello to admin support 👋
+   892→                  </p>
+   893→                ) : (
+   894→                  messages.map((m) => {
+   895→                    const own =
+   896→                      m.senderType === "VENDOR" && m.senderId === vendorId;
+   897→                    return (
+   898→                      <div
+   899→                        key={m.id}
+   900→                        className={cn(
+   901→                          "flex flex-col",
+   902→                          own ? "items-end" : "items-start"
+   903→                        )}
+   904→                      >
+   905→                        {!own && (
+   906→                          <span className="mb-0.5 px-1 text-[11px] font-medium text-muted-foreground">
+   907→                            {m.senderName || "Admin"}
+   908→                          </span>
+   909→                        )}
+   910→                        <div
+   911→                          className={cn(
+   912→                            "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
+   913→                            own
+   914→                              ? "bg-brand text-primary-foreground rounded-br-sm"
+   915→                              : "bg-card border text-card-foreground rounded-bl-sm"
+   916→                          )}
+   917→                        >
+   918→                          {m.body}
+   919→                        </div>
+   920→                        <span className="mt-0.5 px-1 text-[10px] text-muted-foreground">
+   921→                          {relativeTime(m.createdAt)}
+   922→                        </span>
+   923→                      </div>
+   924→                    );
+   925→                  })
+   926→                )}
+   927→              </div>
+   928→            )}
+   929→
+   930→            <form
+   931→              className="mt-3 flex items-center gap-2"
+   932→              onSubmit={(e) => {
+   933→                e.preventDefault();
+   934→                sendChat();
+   935→              }}
+   936→            >
+   937→              <Input
+   938→                placeholder="Type a message…"
+   939→                value={chatDraft}
+   940→                onChange={(e) => setChatDraft(e.target.value)}
+   941→                disabled={sending || !portal}
+   942→                maxLength={1000}
+   943→              />
+   944→              <Button
+   945→                type="submit"
+   946→                size="icon"
+   947→                className="bg-brand text-primary-foreground hover:bg-brand-dark"
+   948→                disabled={sending || !chatDraft.trim() || !portal}
+   949→                aria-label="Send message"
+   950→              >
+   951→                {sending ? (
+   952→                  <Loader2 size={16} className="animate-spin" />
+   953→                ) : (
+   954→                  <Send size={16} />
+   955→                )}
+   956→              </Button>
+   957→            </form>
+   958→            {!socket && (
+   959→              <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+   960→                <Phone size={11} /> Go online to receive live replies from
+   961→                admin support.
+   962→              </p>
+   963→            )}
+   964→          </CardContent>
+   965→        </Card>
+   966→      </div>
+   967→    </div>
+   968→  );
+   969→}
+   970→
+   971→export default VendorPortalPage;
+   972→
