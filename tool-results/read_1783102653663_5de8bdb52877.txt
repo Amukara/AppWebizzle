@@ -1,0 +1,891 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useState, useMemo } from "react";
+     4→     4→import {
+     5→     5→  ShoppingBasket,
+     6→     6→  ShoppingBag,
+     7→     7→  Plus,
+     8→     8→  Minus,
+     9→     9→  Loader2,
+    10→    10→  CheckCircle2,
+    11→    11→  Truck,
+    12→    12→  Clock,
+    13→    13→  TrendingDown,
+    14→    14→  Trophy,
+    15→    15→  Sparkles,
+    16→    16→  ChevronRight,
+    17→    17→  MapPin,
+    18→    18→  Wallet,
+    19→    19→  ArrowLeft,
+    20→    20→  Star,
+    21→    21→  Zap,
+    22→    22→  ShieldCheck,
+    23→    23→  X,
+    24→    24→} from "lucide-react";
+    25→    25→import { Button } from "@/components/ui/button";
+    26→    26→import { Card } from "@/components/ui/card";
+    27→    27→import { Badge } from "@/components/ui/badge";
+    28→    28→import {
+    29→    29→  Dialog,
+    30→    30→  DialogContent,
+    31→    31→  DialogHeader,
+    32→    32→  DialogTitle,
+    33→    33→  DialogDescription,
+    34→    34→} from "@/components/ui/dialog";
+    35→    35→import { ScrollArea } from "@/components/ui/scroll-area";
+    36→    36→import { cn } from "@/lib/utils";
+    37→    37→import { KES } from "../logo";
+    38→    38→import { RatingStars } from "../ui";
+    39→    39→import type { CartItem, CompareResult, PageId, Product, Vendor } from "@/lib/types";
+    40→    40→
+    41→    41→type Selection = Record<string, number>;
+    42→    42→
+    43→    43→// Map category labels to their visual identity
+    44→    44→const CATEGORY_META: Record<string, { emoji: string; color: string }> = {
+    45→    45→  "Mama Mboga": { emoji: "\u{1F96C}", color: "bg-green-100 text-green-800" },
+    46→    46→  "Duka": { emoji: "\u{1F3EA}", color: "bg-amber-100 text-amber-800" },
+    47→    47→  "Pharmacy": { emoji: "\u{1F48A}", color: "bg-blue-100 text-blue-800" },
+    48→    48→  "Hardware": { emoji: "\u{1F527}", color: "bg-orange-100 text-orange-800" },
+    49→    49→  "Electronics": { emoji: "\u{1F4F1}", color: "bg-purple-100 text-purple-800" },
+    50→    50→  "Butchery": { emoji: "\u{1F356}", color: "bg-red-100 text-red-800" },
+    51→    51→  "Bakery": { emoji: "\u{1F35E}", color: "bg-yellow-100 text-yellow-800" },
+    52→    52→  "Agrovet": { emoji: "\u{1F331}", color: "bg-lime-100 text-lime-800" },
+    53→    53→  "Restaurants": { emoji: "\u{1F374}", color: "bg-rose-100 text-rose-800" },
+    54→    54→  "Bars & Pubs": { emoji: "\u{1F37A}", color: "bg-indigo-100 text-indigo-800" },
+    55→    55→};
+    56→    56→
+    57→    57→export function BasketPage({
+    58→    58→  products,
+    59→    59→  vendors,
+    60→    60→  selection,
+    61→    61→  setSelection,
+    62→    62→  onCompare,
+    63→    63→  onChooseVendor,
+    64→    64→  onNavigate,
+    65→    65→  activeCategory,
+    66→    66→  onClearCategory,
+    67→    67→}: {
+    68→    68→  products: Product[];
+    69→    69→  vendors: Vendor[];
+    70→    70→  selection: Selection;
+    71→    71→  setSelection: (s: Selection) => void;
+    72→    72→  onCompare: () => Promise<CompareResult | null>;
+    73→    73→  onChooseVendor: (vendorId: string, items: CartItem[]) => void;
+    74→    74→  onNavigate: (p: PageId) => void;
+    75→    75→  activeCategory: string | null;
+    76→    76→  onClearCategory: () => void;
+    77→    77→}) {
+    78→    78→  const [loading, setLoading] = useState(false);
+    79→    79→  const [result, setResult] = useState<CompareResult | null>(null);
+    80→    80→  const [open, setOpen] = useState(false);
+    81→    81→  const [error, setError] = useState<string | null>(null);
+    82→    82→  const [budget, setBudget] = useState<string>("");
+    83→    83→
+    84→    84→  // Derive all unique categories from the product list
+    85→    85→  const allCategories = useMemo(() => {
+    86→    86→    const cats = new Set(products.map((p) => p.category));
+    87→    87→    return Array.from(cats).sort();
+    88→    88→  }, [products]);
+    89→    89→
+    90→    90→  // Filter products: if a category is active, show only that category
+    91→    91→  const displayProducts = useMemo(() => {
+    92→    92→    if (!activeCategory) return products;
+    93→    93→    return products.filter((p) => p.category === activeCategory);
+    94→    94→  }, [products, activeCategory]);
+    95→    95→
+    96→    96→  // Products already in the basket (for upsell suggestions)
+    97→    97→  const selectedIds = useMemo(
+    98→    98→    () => new Set(Object.keys(selection).filter((id) => selection[id] > 0)),
+    99→    99→    [selection]
+   100→   100→  );
+   101→   101→
+   102→   102→  // Upsell items: products in the same category NOT yet in the basket
+   103→   103→  const upsellProducts = useMemo(() => {
+   104→   104→    if (!activeCategory) return [];
+   105→   105→    return products.filter(
+   106→   106→      (p) => p.category === activeCategory && !selectedIds.has(p.id)
+   107→   107→    );
+   108→   108→  }, [products, activeCategory, selectedIds]);
+   109→   109→
+   110→   110→  const totalQty = Object.values(selection).reduce((a, b) => a + b, 0);
+   111→   111→  const hasItems = totalQty > 0;
+   112→   112→
+   113→   113→  const estimatedMin = products.reduce((s, p) => {
+   114→   114→    const q = selection[p.id] || 0;
+   115→   115→    return s + p.bestPrice * q;
+   116→   116→  }, 0);
+   117→   117→  const budgetNum = Number(budget) || 0;
+   118→   118→  const overBudget = budgetNum > 0 && estimatedMin > budgetNum;
+   119→   119→  const budgetPct =
+   120→   120→    budgetNum > 0 ? Math.min(100, Math.round((estimatedMin / budgetNum) * 100)) : 0;
+   121→   121→
+   122→   122→  const meta = activeCategory ? CATEGORY_META[activeCategory] : null;
+   123→   123→
+   124→   124→  const handleCompare = async () => {
+   125→   125→    setLoading(true);
+   126→   126→    setError(null);
+   127→   127→    try {
+   128→   128→      const res = await onCompare();
+   129→   129→      if (!res) {
+   130→   130→        setError("Could not compare prices. Please try again.");
+   131→   131→        return;
+   132→   132→      }
+   133→   133→      setResult(res);
+   134→   134→      setOpen(true);
+   135→   135→    } catch {
+   136→   136→      setError("Something went wrong. Please try again.");
+   137→   137→    } finally {
+   138→   138→      setLoading(false);
+   139→   139→    }
+   140→   140→  };
+   141→   141→
+   142→   142→  const handleChoose = (vendorId: string, lineItems: CompareResult["bestSingle"]["lineItems"]) => {
+   143→   143→    const items: CartItem[] = lineItems.map((li) => ({
+   144→   144→      productId: li.productId,
+   145→   145→      name: li.name,
+   146→   146→      unit: li.unit,
+   147→   147→      emoji: li.emoji,
+   148→   148→      qty: li.qty,
+   149→   149→      unitPrice: li.price,
+   150→   150→    }));
+   151→   151→    onChooseVendor(vendorId, items);
+   152→   152→    setOpen(false);
+   153→   153→    onNavigate("cart");
+   154→   154→  };
+   155→   155→
+   156→   156→  const handleCategoryClick = (cat: string | null) => {
+   157→   157→    if (cat === activeCategory) {
+   158→   158→      onClearCategory();
+   159→   159→    } else {
+   160→   160→      onNavigate("basket", cat);
+   161→   161→    }
+   162→   162→  };
+   163→   163→
+   164→   164→  return (
+   165→   165→    <div className="space-y-5">
+   166→   166→      {/* Header */}
+   167→   167→      <div className="space-y-2">
+   168→   168→        {activeCategory ? (
+   169→   169→          <div className="flex items-center gap-3">
+   170→   170→            <button
+   171→   171→              onClick={() => onClearCategory()}
+   172→   172→              className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card transition-colors hover:bg-muted"
+   173→   173→              aria-label="Back to all products"
+   174→   174→            >
+   175→   175→              <ArrowLeft size={16} />
+   176→   176→            </button>
+   177→   177→            <div className="flex items-center gap-2">
+   178→   178→              <span className="text-2xl">{meta?.emoji}</span>
+   179→   179→              <h1 className="text-2xl font-extrabold">{activeCategory}</h1>
+   180→   180→              <Badge className={cn("text-[10px]", meta?.color)}>
+   181→   181→                {displayProducts.length} items
+   182→   182→              </Badge>
+   183→   183→            </div>
+   184→   184→          </div>
+   185→   185→        ) : (
+   186→   186→          <div className="flex items-center gap-2">
+   187→   187→            <ShoppingBasket className="text-brand" size={24} />
+   188→   188→            <h1 className="text-2xl font-extrabold">Smart Basket</h1>
+   189→   189→          </div>
+   190→   190→        )}
+   191→   191→        <p className="text-sm text-muted-foreground">
+   192→   192→          {activeCategory
+   193→   193→            ? `Browse ${activeCategory.toLowerCase()} items — add to your basket, compare vendors, and pick the best deal.`
+   194→   194→            : "Build your list once — WeBizzle checks every vendor and finds the cheapest full basket."}
+   195→   195→        </p>
+   196→   196→      </div>
+   197→   197→
+   198→   198→      {/* Category pills (only when no active category) */}
+   199→   199→      {!activeCategory && (
+   200→   200→        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+   201→   201→          {allCategories.map((cat) => {
+   202→   202→            const cm = CATEGORY_META[cat];
+   203→   203→            const count = products.filter((p) => p.category === cat).length;
+   204→   204→            if (count === 0) return null;
+   205→   205→            return (
+   206→   206→              <button
+   207→   207→                key={cat}
+   208→   208→                onClick={() => handleCategoryClick(cat)}
+   209→   209→                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium transition-all hover:border-brand hover:bg-brand-light/40"
+   210→   210→              >
+   211→   211→                <span>{cm?.emoji}</span>
+   212→   212→                {cat}
+   213→   213→                <span className="text-muted-foreground">({count})</span>
+   214→   214→              </button>
+   215→   215→            );
+   216→   216→          })}
+   217→   217→        </div>
+   218→   218→      )}
+   219→   219→
+   220→   220→      {/* Main product builder */}
+   221→   221→      <Card className="divide-y divide-border overflow-hidden">
+   222→   222→        {displayProducts.length === 0 ? (
+   223→   223→          <div className="flex flex-col items-center gap-2 p-10 text-center">
+   224→   224→            <span className="text-4xl">{meta?.emoji ?? "\u{1F6D2}"}</span>
+   225→   225→            <p className="text-sm font-medium text-muted-foreground">
+   226→   226→              No products in this category yet
+   227→   227→            </p>
+   228→   228→            <Button
+   229→   229→              variant="outline"
+   230→   230→              size="sm"
+   231→   231→              onClick={() => onClearCategory()}
+   232→   232→            >
+   233→   233→              Browse all categories
+   234→   234→            </Button>
+   235→   235→          </div>
+   236→   236→        ) : (
+   237→   237→          displayProducts.map((p) => {
+   238→   238→            const qty = selection[p.id] || 0;
+   239→   239→            const active = qty > 0;
+   240→   240→            return (
+   241→   241→              <div
+   242→   242→                key={p.id}
+   243→   243→                className={cn(
+   244→   244→                  "flex items-center gap-3 p-3 transition-colors sm:p-4",
+   245→   245→                  active && "bg-brand-light/40"
+   246→   246→                )}
+   247→   247→              >
+   248→   248→                <div
+   249→   249→                  className={cn(
+   250→   250→                    "grid h-12 w-12 shrink-0 place-items-center rounded-xl text-2xl",
+   251→   251→                    active ? "bg-brand-light" : "bg-muted"
+   252→   252→                  )}
+   253→   253→                >
+   254→   254→                  {p.emoji}
+   255→   255→                </div>
+   256→   256→                <div className="min-w-0 flex-1">
+   257→   257→                  <div className="font-semibold leading-tight">{p.name}</div>
+   258→   258→                  <div className="text-xs text-muted-foreground">
+   259→   259→                    {p.unit} · from {KES(p.bestPrice)}
+   260→   260→                  </div>
+   261→   261→                </div>
+   262→   262→                <Stepper
+   263→   263→                  qty={qty}
+   264→   264→                  onDec={() => {
+   265→   265→                    const next = { ...selection };
+   266→   266→                    if (qty <= 1) delete next[p.id];
+   267→   267→                    else next[p.id] = qty - 1;
+   268→   268→                    setSelection(next);
+   269→   269→                  }}
+   270→   270→                  onInc={() =>
+   271→   271→                    setSelection({ ...selection, [p.id]: qty + 1 })
+   272→   272→                  }
+   273→   273→                />
+   274→   274→              </div>
+   275→   275→            );
+   276→   276→          })
+   277→   277→        )}
+   278→   278→      </Card>
+   279→   279→
+   280→   280→      {/* UPSELL SUGGESTIONS (when category is active and items are in basket) */}
+   281→   281→      {activeCategory && upsellProducts.length > 0 && hasItems && (
+   282→   282→        <div className="space-y-3">
+   283→   283→          <div className="flex items-center gap-2">
+   284→   284→            <Sparkles className="h-4 w-4 text-gold" />
+   285→   285→            <h3 className="text-sm font-bold">
+   286→   286→              You might also need ({upsellProducts.length} more {activeCategory.toLowerCase()} items)
+   287→   287→            </h3>
+   288→   288→          </div>
+   289→   289→          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+   290→   290→            {upsellProducts.slice(0, 6).map((p) => (
+   291→   291→              <button
+   292→   292→                key={p.id}
+   293→   293→                onClick={() =>
+   294→   294→                  setSelection({ ...selection, [p.id]: (selection[p.id] || 0) + 1 })
+   295→   295→                }
+   296→   296→                className="group flex items-center gap-2 rounded-xl border border-border bg-card p-2.5 text-left transition-all hover:border-brand hover:shadow-sm"
+   297→   297→              >
+   298→   298→                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
+   299→   299→                  {p.emoji}
+   300→   300→                </span>
+   301→   301→                <div className="min-w-0 flex-1">
+   302→   302→                  <div className="truncate text-xs font-semibold group-hover:text-brand">
+   303→   303→                    {p.name}
+   304→   304→                  </div>
+   305→   305→                  <div className="text-[10px] text-muted-foreground">
+   306→   306→                    {KES(p.bestPrice)}
+   307→   307→                  </div>
+   308→   308→                </div>
+   309→   309→                <Plus
+   310→   310→                  size={14}
+   311→   311→                  className="shrink-0 text-muted-foreground group-hover:text-brand"
+   312→   312→                />
+   313→   313→              </button>
+   314→   314→            ))}
+   315→   315→          </div>
+   316→   316→        </div>
+   317→   317→      )}
+   318→   318→
+   319→   319→      {/* Already-in-basket quick view (when on category page, show what's selected) */}
+   320→   320→      {activeCategory && hasItems && (
+   321→   321→        <div className="space-y-2">
+   322→   322→          <div className="flex items-center gap-2">
+   323→   323→            <ShoppingBasket className="h-4 w-4 text-brand" />
+   324→   324→            <h3 className="text-sm font-bold">In your basket ({totalQty} items)</h3>
+   325→   325→          </div>
+   326→   326→          <div className="flex flex-wrap gap-1.5">
+   327→   327→            {Object.entries(selection)
+   328→   328→              .filter(([, q]) => q > 0)
+   329→   329→              .map(([pid, qty]) => {
+   330→   330→                const p = products.find((pr) => pr.id === pid);
+   331→   331→                if (!p) return null;
+   332→   332→                return (
+   333→   333→                  <Badge
+   334→   334→                    key={pid}
+   335→   335→                    variant="secondary"
+   336→   336→                    className="gap-1 bg-brand-light/60 px-2 py-1 text-xs"
+   337→   337→                  >
+   338→   338→                    <span>{p.emoji}</span>
+   339→   339→                    {p.name} x{qty}
+   340→   340→                    <button
+   341→   341→                      onClick={() => {
+   342→   342→                        const next = { ...selection };
+   343→   343→                        if (qty <= 1) delete next[pid];
+   344→   344→                        else next[pid] = qty - 1;
+   345→   345→                        setSelection(next);
+   346→   346→                      }}
+   347→   347→                      className="ml-0.5 rounded-full p-0.5 hover:bg-brand/20"
+   348→   348→                      aria-label={`Remove ${p.name}`}
+   349→   349→                    >
+   350→   350→                      <X size={10} />
+   351→   351→                    </button>
+   352→   352→                  </Badge>
+   353→   353→                );
+   354→   354→              })}
+   355→   355→          </div>
+   356→   356→        </div>
+   357→   357→      )}
+   358→   358→
+   359→   359→      {/* Summary + Compare CTA */}
+   360→   360→      <div className="sticky bottom-16 z-30 md:bottom-4">
+   361→   361→        <Card className="border-brand/30 bg-card/95 p-4 shadow-lg backdrop-blur">
+   362→   362→          {/* Budget guardrail */}
+   363→   363→          <div className="mb-3 flex items-center gap-2">
+   364→   364→            <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+   365→   365→              <Wallet size={13} /> Budget
+   366→   366→            </span>
+   367→   367→            <div className="relative flex-1">
+   368→   368→              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+   369→   369→                KES
+   370→   370→              </span>
+   371→   371→              <input
+   372→   372→                type="number"
+   373→   373→                inputMode="numeric"
+   374→   374→                min={0}
+   375→   375→                placeholder="Set a max spend (optional)"
+   376→   376→                value={budget}
+   377→   377→                onChange={(e) => setBudget(e.target.value)}
+   378→   378→                className="h-8 w-full rounded-lg border border-border bg-background pl-9 pr-2 text-xs outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+   379→   379→              />
+   380→   380→            </div>
+   381→   381→          </div>
+   382→   382→
+   383→   383→          {budgetNum > 0 && estimatedMin > 0 && (
+   384→   384→            <div className="mb-3">
+   385→   385→              <div className="flex items-center justify-between text-[11px]">
+   386→   386→                <span className={overBudget ? "font-semibold text-destructive" : "text-muted-foreground"}>
+   387→   387→                  Est. min {KES(estimatedMin)}
+   388→   388→                </span>
+   389→   389→                <span className="text-muted-foreground">
+   390→   390→                  Budget {KES(budgetNum)}
+   391→   391→                </span>
+   392→   392→              </div>
+   393→   393→              <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
+   394→   394→                <div
+   395→   395→                  className={
+   396→   396→                    "h-full rounded-full transition-all " +
+   397→   397→                    (overBudget
+   398→   398→                      ? "bg-destructive"
+   399→   399→                      : "bg-gradient-to-r from-brand to-brand-dark")
+   400→   400→                  }
+   401→   401→                  style={{ width: `${budgetPct}%` }}
+   402→   402→                />
+   403→   403→              </div>
+   404→   404→              {overBudget ? (
+   405→   405→                <div className="mt-1 text-[11px] font-medium text-destructive">
+   406→   406→                  Over budget by {KES(estimatedMin - budgetNum)} — compare to
+   407→   407→                  find savings, or trim your list.
+   408→   408→                </div>
+   409→   409→              ) : (
+   410→   410→                <div className="mt-1 text-[11px] text-muted-foreground">
+   411→   411→                  On track — {KES(budgetNum - estimatedMin)} of headroom.
+   412→   412→                </div>
+   413→   413→              )}
+   414→   414→            </div>
+   415→   415→          )}
+   416→   416→
+   417→   417→          <div className="flex items-center justify-between gap-3">
+   418→   418→            <div>
+   419→   419→              <div className="text-xs text-muted-foreground">
+   420→   420→                {Object.keys(selection).length} product
+   421→   421→                {Object.keys(selection).length !== 1 ? "s" : ""} · {totalQty}{" "}
+   422→   422→                item{totalQty !== 1 ? "s" : ""}
+   423→   423→              </div>
+   424→   424→              <div className="text-sm font-semibold text-foreground">
+   425→   425→                {activeCategory
+   426→   426→                  ? `Comparing across ${vendors.filter((v) => v.type === activeCategory).length || vendors.length} ${activeCategory.toLowerCase()} vendor${vendors.filter((v) => v.type === activeCategory).length !== 1 ? "s" : ""}+ more`
+   427→   427→                  : `We'll compare ${Object.keys(selection).length || 0} product${Object.keys(selection).length !== 1 ? "s" : ""} across ${vendors.length} vendors`}
+   428→   428→              </div>
+   429→   429→            </div>
+   430→   430→            <Button
+   431→   431→              className="bg-brand text-white hover:bg-brand-dark"
+   432→   432→              disabled={!hasItems || loading}
+   433→   433→              onClick={handleCompare}
+   434→   434→            >
+   435→   435→              {loading ? (
+   436→   436→                <Loader2 size={18} className="animate-spin" />
+   437→   437→              ) : (
+   438→   438→                <ShoppingBag size={18} />
+   439→   439→              )}
+   440→   440→              Compare ({totalQty})
+   441→   441→            </Button>
+   442→   442→          </div>
+   443→   443→          {error && (
+   444→   444→            <div className="mt-2 text-xs text-destructive">{error}</div>
+   445→   445→          )}
+   446→   446→        </Card>
+   447→   447→      </div>
+   448→   448→
+   449→   449→      <CompareDialog
+   450→   450→        open={open}
+   451→   451→        onOpenChange={setOpen}
+   452→   452→        result={result}
+   453→   453→        onChoose={handleChoose}
+   454→   454→        budget={budgetNum}
+   455→   455→      />
+   456→   456→    </div>
+   457→   457→  );
+   458→   458→}
+   459→   459→
+   460→   460→function Stepper({
+   461→   461→  qty,
+   462→   462→  onDec,
+   463→   463→  onInc,
+   464→   464→}: {
+   465→   465→  qty: number;
+   466→   466→  onDec: () => void;
+   467→   467→  onInc: () => void;
+   468→   468→}) {
+   469→   469→  if (qty === 0) {
+   470→   470→    return (
+   471→   471→      <Button
+   472→   472→        size="sm"
+   473→   473→        variant="secondary"
+   474→   474→        className="h-9 px-3"
+   475→   475→        onClick={onInc}
+   476→   476→      >
+   477→   477→        <Plus size={14} /> Add
+   478→   478→      </Button>
+   479→   479→    );
+   480→   480→  }
+   481→   481→  return (
+   482→   482→    <div className="flex items-center gap-1 rounded-full border border-border bg-background p-0.5">
+   483→   483→      <button
+   484→   484→        onClick={onDec}
+   485→   485→        className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+   486→   486→        aria-label="Decrease quantity"
+   487→   487→      >
+   488→   488→        <Minus size={14} />
+   489→   489→      </button>
+   490→   490→      <span className="w-7 text-center text-sm font-bold tabular-nums">
+   491→   491→        {qty}
+   492→   492→      </span>
+   493→   493→      <button
+   494→   494→        onClick={onInc}
+   495→   495→        className="grid h-8 w-8 place-items-center rounded-full text-brand transition-colors hover:bg-brand-light"
+   496→   496→        aria-label="Increase quantity"
+   497→   497→      >
+   498→   498→        <Plus size={14} />
+   499→   499→      </button>
+   500→   500→    </div>
+   501→   501→  );
+   502→   502→}
+   503→   503→
+   504→   504→// ---- REVAMPED COMPARE DIALOG WITH VENDOR TOGGLE ----
+   505→   505→
+   506→   506→function CompareDialog({
+   507→   507→  open,
+   508→   508→  onOpenChange,
+   509→   509→  result,
+   510→   510→  onChoose,
+   511→   511→  budget = 0,
+   512→   512→}: {
+   513→   513→  open: boolean;
+   514→   514→  onOpenChange: (o: boolean) => void;
+   515→   515→  result: CompareResult | null;
+   516→   516→  onChoose: (
+   517→   517→    vendorId: string,
+   518→   518→    items: CompareResult["bestSingle"]["lineItems"]
+   519→   519→  ) => void;
+   520→   520→  budget?: number;
+   521→   521→}) {
+   522→   522→  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
+   523→   523→
+   524→   524→  if (!result) return null;
+   525→   525→
+   526→   526→  const { perItem, perVendor, bestSingle, bestSplit, totalQty } = result;
+   527→   527→  const savings = bestSingle
+   528→   528→    ? bestSplit.total < bestSingle.total
+   529→   529→      ? bestSingle.total - bestSplit.total
+   530→   530→      : 0
+   531→   531→    : 0;
+   532→   532→  const vendorsInBudget = budget > 0 ? perVendor.filter((v) => v.total <= budget).length : 0;
+   533→   533→
+   534→   534→  // The vendor the user is currently inspecting (toggled)
+   535→   535→  const activeVendor =
+   536→   536→    selectedVendorId && selectedVendorId !== bestSingle?.vendorId
+   537→   537→      ? perVendor.find((v) => v.vendorId === selectedVendorId) ?? null
+   538→   538→      : bestSingle;
+   539→   539→
+   540→   540→  const handleToggleVendor = (vid: string) => {
+   541→   541→    setSelectedVendorId((prev) => (prev === vid ? null : vid));
+   542→   542→  };
+   543→   543→
+   544→   544→  return (
+   545→   545→    <Dialog open={open} onOpenChange={onOpenChange}>
+   546→   546→      <DialogContent className="max-w-2xl gap-0 p-0 sm:rounded-2xl">
+   547→   547→        <DialogHeader className="border-b border-border px-5 py-4">
+   548→   548→          <DialogTitle className="flex items-center gap-2 text-lg">
+   549→   549→            <Sparkles className="text-gold" size={20} />
+   550→   550→            Your price comparison
+   551→   551→          </DialogTitle>
+   552→   552→          <DialogDescription className="text-xs">
+   553→   553→            Compared {perItem.length} products ({totalQty} items) across{" "}
+   554→   554→            {perVendor.length} vendors.
+   555→   555→          </DialogDescription>
+   556→   556→        </DialogHeader>
+   557→   557→
+   558→   558→        <ScrollArea className="max-h-[70vh]">
+   559→   559→          <div className="space-y-5 p-5">
+   560→   560→            {/* BEST OPTION HIGHLIGHT (with vendor toggle) */}
+   561→   561→            {activeVendor && (
+   562→   562→              <div className="rounded-2xl bg-gradient-to-br from-brand to-brand-dark p-5 text-white">
+   563→   563→                <div className="flex items-center justify-between">
+   564→   564→                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide">
+   565→   565→                    <Trophy size={12} /> Best single-vendor basket
+   566→   566→                  </span>
+   567→   567→                  <div className="flex items-center gap-2">
+   568→   568→                    {/* Rating with star icon for visibility */}
+   569→   569→                    <span className="inline-flex items-center gap-1 text-xs">
+   570→   570→                      <Star size={12} className="fill-gold text-gold" />
+   571→   571→                      <span className="font-bold">{activeVendor.rating.toFixed(1)}</span>
+   572→   572→                    </span>
+   573→   573→                  </div>
+   574→   574→                </div>
+   575→   575→                <div className="mt-3 flex items-center justify-between gap-3">
+   576→   576→                  <div className="min-w-0">
+   577→   577→                    <div className="flex items-center gap-2 text-lg font-extrabold">
+   578→   578→                      <span className="text-2xl">{activeVendor.vendorEmoji}</span>
+   579→   579→                      <span className="truncate">{activeVendor.vendorName}</span>
+   580→   580→                    </div>
+   581→   581→                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/80">
+   582→   582→                      <span className="inline-flex items-center gap-1">
+   583→   583→                        <Clock size={11} /> {activeVendor.etaMinutes} min
+   584→   584→                      </span>
+   585→   585→                      <span className="inline-flex items-center gap-1">
+   586→   586→                        <MapPin size={11} /> {activeVendor.location}
+   587→   587→                      </span>
+   588→   588→                      <span className="inline-flex items-center gap-1">
+   589→   589→                        <Truck size={11} /> {KES(activeVendor.deliveryFee)}{" "}
+   590→   590→                        delivery
+   591→   591→                      </span>
+   592→   592→                      <span className="inline-flex items-center gap-1">
+   593→   593→                        <ShieldCheck size={11} /> {activeVendor.vendorType}
+   594→   594→                      </span>
+   595→   595→                    </div>
+   596→   596→                  </div>
+   597→   597→                  <div className="text-right">
+   598→   598→                    <div className="text-[11px] uppercase text-white/70">
+   599→   599→                      Total
+   600→   600→                    </div>
+   601→   601→                    <div className="text-2xl font-extrabold">
+   602→   602→                      {KES(activeVendor.total)}
+   603→   603→                    </div>
+   604→   604→                  </div>
+   605→   605→                </div>
+   606→   606→
+   607→   607→                {/* Speed & Reliability indicators */}
+   608→   608→                <div className="mt-3 flex flex-wrap gap-2">
+   609→   609→                  {activeVendor.etaMinutes <= 20 && (
+   610→   610→                    <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold">
+   611→   611→                      <Zap size={10} className="text-yellow-300" /> Fastest
+   612→   612→                    </span>
+   613→   613→                  )}
+   614→   614→                  {activeVendor.rating >= 4.7 && (
+   615→   615→                    <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold">
+   616→   616→                      <Star size={10} className="text-yellow-300" /> Top rated
+   617→   617→                    </span>
+   618→   618→                  )}
+   619→   619→                  {!activeVendor.canFulfilAll && (
+   620→   620→                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/30 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+   621→   621→                      Partial stock
+   622→   622→                    </span>
+   623→   623→                  )}
+   624→   624→                </div>
+   625→   625→
+   626→   626→                {savings > 0 && activeVendor === bestSingle && (
+   627→   627→                  <div className="mt-3 rounded-lg bg-gold/20 px-3 py-2 text-xs">
+   628→   628→                    <span className="font-semibold text-gold">
+   629→   629→                      Save {KES(savings)}
+   630→   630→                    </span>{" "}
+   631→   631→                    by splitting across {bestSplit.vendorCount} vendors — see
+   632→   632→                    &ldquo;Split basket&rdquo; below.
+   633→   633→                  </div>
+   634→   634→                )}
+   635→   635→
+   636→   636→                {/* Item breakdown for the selected vendor */}
+   637→   637→                <div className="mt-3 space-y-1.5">
+   638→   638→                  <div className="text-[11px] font-semibold uppercase text-white/60">
+   639→   639→                    Items from {activeVendor.vendorName}
+   640→   640→                  </div>
+   641→   641→                  {activeVendor.lineItems.map((li) => (
+   642→   642→                    <div
+   643→   643→                      key={li.productId}
+   644→   644→                      className="flex items-center justify-between text-xs text-white/90"
+   645→   645→                    >
+   646→   646→                      <span className="flex items-center gap-1.5">
+   647→   647→                        <span>{li.emoji}</span>
+   648→   648→                        {li.name} x{li.qty}
+   649→   649→                      </span>
+   650→   650→                      <span className="font-medium">
+   651→   651→                        {KES(li.lineTotal)}
+   652→   652→                      </span>
+   653→   653→                    </div>
+   654→   654→                  ))}
+   655→   655→                </div>
+   656→   656→
+   657→   657→                <Button
+   658→   658→                  className="mt-4 w-full bg-white text-brand hover:bg-white/90"
+   659→   659→                  onClick={() =>
+   660→   660→                    onChoose(activeVendor.vendorId, activeVendor.lineItems)
+   661→   661→                  }
+   662→   662→                >
+   663→   663→                  Order from {activeVendor.vendorEmoji} {activeVendor.vendorName}{" "}
+   664→   664→                  <ChevronRight size={16} />
+   665→   665→                </Button>
+   666→   666→              </div>
+   667→   667→            )}
+   668→   668→
+   669→   669→            {/* SPLIT OPTION (if cheaper) */}
+   670→   670→            {bestSingle && savings > 0 && (
+   671→   671→              <Card className="border-gold/40 p-4">
+   672→   672→                <div className="flex items-center justify-between">
+   673→   673→                  <span className="inline-flex items-center gap-1.5 text-sm font-bold text-gold-dark">
+   674→   674→                    <TrendingDown size={14} /> Split basket (cheapest)
+   675→   675→                  </span>
+   676→   676→                  <span className="text-lg font-extrabold text-gold-dark">
+   677→   677→                    {KES(bestSplit.total)}
+   678→   678→                  </span>
+   679→   679→                </div>
+   680→   680→                <p className="mt-1 text-xs text-muted-foreground">
+   681→   681→                  Buy each item from its cheapest vendor — {bestSplit.vendorCount}{" "}
+   682→   682→                  deliveries, but you save {KES(savings)} overall.
+   683→   683→                </p>
+   684→   684→                <div className="mt-2 text-[11px] text-muted-foreground">
+   685→   685→                  Split checkout isn&apos;t live yet — pick the best single
+   686→   686→                  vendor above for a one-delivery order.
+   687→   687→                </div>
+   688→   688→              </Card>
+   689→   689→            )}
+   690→   690→
+   691→   691→            {/* PER-ITEM BEST */}
+   692→   692→            <div className="space-y-2">
+   693→   693→              <h4 className="text-sm font-bold">
+   694→   694→                Cheapest vendor per item
+   695→   695→              </h4>
+   696→   696→              <div className="space-y-1.5">
+   697→   697→                {perItem.map((it) => (
+   698→   698→                  <div
+   699→   699→                    key={it.productId}
+   700→   700→                    className="flex items-center gap-3 rounded-xl border border-border bg-card p-2.5"
+   701→   701→                  >
+   702→   702→                    <span className="text-xl">{it.emoji}</span>
+   703→   703→                    <div className="min-w-0 flex-1">
+   704→   704→                      <div className="text-sm font-semibold leading-tight">
+   705→   705→                        {it.name}{" "}
+   706→   706→                        <span className="text-muted-foreground">
+   707→   707→                          x {it.qty}
+   708→   708→                        </span>
+   709→   709→                      </div>
+   710→   710→                      <div className="truncate text-[11px] text-muted-foreground">
+   711→   711→                        Best: {it.cheapest?.vendorEmoji}{" "}
+   712→   712→                        {it.cheapest?.vendorName} · {KES(it.cheapest!.price)}{" "}
+   713→   713→                        each
+   714→   714→                      </div>
+   715→   715→                    </div>
+   716→   716→                    <div className="text-right">
+   717→   717→                      <div className="text-sm font-bold text-brand">
+   718→   718→                        {KES(it.cheapestLineTotal)}
+   719→   719→                      </div>
+   720→   720→                      <div className="text-[10px] text-muted-foreground">
+   721→   721→                        {KES(it.cheapest!.price)}/ea
+   722→   722→                      </div>
+   723→   723→                    </div>
+   724→   724→                  </div>
+   725→   725→                ))}
+   726→   726→              </div>
+   727→   727→            </div>
+   728→   728→
+   729→   729→            {/* ALL VENDORS — TOGGLE TO SELECT & INSPECT */}
+   730→   730→            <div className="space-y-2">
+   731→   731→              <div className="flex items-center justify-between">
+   732→   732→                <h4 className="text-sm font-bold">All vendors ranked</h4>
+   733→   733→                {budget > 0 && (
+   734→   734→                  <span className="text-[11px] text-muted-foreground">
+   735→   735→                    {vendorsInBudget} of {perVendor.length} fit your {KES(budget)} budget
+   736→   736→                  </span>
+   737→   737→                )}
+   738→   738→              </div>
+   739→   739→
+   740→   740→              {/* Sort hints */}
+   741→   741→              <div className="flex gap-2 text-[10px] text-muted-foreground">
+   742→   742→                <span className="inline-flex items-center gap-0.5">
+   743→   743→                  <Trophy size={9} className="text-brand" /> Cheapest first
+   744→   744→                </span>
+   745→   745→                <span>·</span>
+   746→   746→                <span className="inline-flex items-center gap-0.5">
+   747→   747→                  <Clock size={9} /> Then fastest
+   748→   748→                </span>
+   749→   749→                <span>·</span>
+   750→   750→                <span className="inline-flex items-center gap-0.5">
+   751→   751→                  <Star size={9} className="text-gold" /> Then top rated
+   752→   752→                </span>
+   753→   753→              </div>
+   754→   754→
+   755→   755→              <div className="space-y-2">
+   756→   756→                {perVendor.map((v, i) => {
+   757→   757→                  const fitsBudget = budget <= 0 || v.total <= budget;
+   758→   758→                  const isBest = i === 0 && bestSingle && v.vendorId === bestSingle.vendorId;
+   759→   759→                  const isSelected = selectedVendorId === v.vendorId;
+   760→   760→                  return (
+   761→   761→                  <Card
+   762→   762→                    key={v.vendorId}
+   763→   763→                    className={cn(
+   764→   764→                      "cursor-pointer p-3 transition-all",
+   765→   765→                      isBest && "border-brand ring-1 ring-brand/30",
+   766→   766→                      isSelected && !isBest && "border-gold ring-1 ring-gold/30",
+   767→   767→                      budget > 0 && !fitsBudget && "opacity-60",
+   768→   768→                      isSelected && "shadow-md"
+   769→   769→                    )}
+   770→   770→                    onClick={() => handleToggleVendor(v.vendorId)}
+   771→   771→                  >
+   772→   772→                    <div className="flex items-center justify-between gap-2">
+   773→   773→                      <div className="flex min-w-0 items-center gap-2">
+   774→   774→                        {/* Rank badge */}
+   775→   775→                        <span
+   776→   776→                          className={cn(
+   777→   777→                            "grid h-6 w-6 shrink-0 place-items-center rounded-full text-[10px] font-bold",
+   778→   778→                            i === 0
+   779→   779→                              ? "bg-brand text-white"
+   780→   780→                              : i === 1
+   781→   781→                                ? "bg-brand-light text-brand"
+   782→   782→                                : "bg-muted text-muted-foreground"
+   783→   783→                          )}
+   784→   784→                        >
+   785→   785→                          {i + 1}
+   786→   786→                        </span>
+   787→   787→                        <span className="text-lg">{v.vendorEmoji}</span>
+   788→   788→                        <div className="min-w-0">
+   789→   789→                          <div className="flex items-center gap-1.5">
+   790→   790→                            <span className="truncate text-sm font-semibold">
+   791→   791→                              {v.vendorName}
+   792→   792→                            </span>
+   793→   793→                            {!v.canFulfilAll && (
+   794→   794→                              <Badge
+   795→   795→                                variant="outline"
+   796→   796→                                className="bg-amber-50 text-[10px] text-amber-700"
+   797→   797→                              >
+   798→   798→                                Partial
+   799→   799→                              </Badge>
+   800→   800→                            )}
+   801→   801→                            {budget > 0 && fitsBudget && (
+   802→   802→                              <Badge className="bg-brand-light text-[10px] text-brand">
+   803→   803→                                In budget
+   804→   804→                              </Badge>
+   805→   805→                            )}
+   806→   806→                            {budget > 0 && !fitsBudget && (
+   807→   807→                              <Badge variant="outline" className="bg-red-50 text-[10px] text-destructive">
+   808→   808→                                Over
+   809→   809→                              </Badge>
+   810→   810→                            )}
+   811→   811→                            {isSelected && (
+   812→   812→                              <Badge className="bg-gold/20 text-[10px] text-gold-dark">
+   813→   813→                                Viewing
+   814→   814→                              </Badge>
+   815→   815→                            )}
+   816→   816→                          </div>
+   817→   817→                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+   818→   818→                            {/* Rating always visible */}
+   819→   819→                            <span className="inline-flex items-center gap-0.5 font-medium">
+   820→   820→                              <Star size={10} className="fill-gold text-gold" />
+   821→   821→                              {v.rating.toFixed(1)}
+   822→   822→                            </span>
+   823→   823→                            <span>·</span>
+   824→   824→                            <span className="inline-flex items-center gap-0.5">
+   825→   825→                              <Clock size={10} /> {v.etaMinutes} min
+   826→   826→                            </span>
+   827→   827→                            <span>·</span>
+   828→   828→                            <span>{v.vendorType}</span>
+   829→   829→                          </div>
+   830→   830→                        </div>
+   831→   831→                      </div>
+   832→   832→                      <div className="text-right">
+   833→   833→                        <div className="text-sm font-extrabold">
+   834→   834→                          {KES(v.total)}
+   835→   835→                        </div>
+   836→   836→                        <div className="text-[10px] text-muted-foreground">
+   837→   837→                          + {KES(v.deliveryFee)} delivery
+   838→   838→                        </div>
+   839→   839→                      </div>
+   840→   840→                    </div>
+   841→   841→
+   842→   842→                    {/* Expand item breakdown when this vendor is selected */}
+   843→   843→                    {isSelected && (
+   844→   844→                      <div className="mt-3 space-y-1.5 border-t border-border pt-3">
+   845→   845→                        <div className="text-[10px] font-semibold uppercase text-muted-foreground">
+   846→   846→                          Item breakdown
+   847→   847→                        </div>
+   848→   848→                        {v.lineItems.map((li) => (
+   849→   849→                          <div
+   850→   850→                            key={li.productId}
+   851→   851→                            className="flex items-center justify-between text-xs"
+   852→   852→                          >
+   853→   853→                            <span className="flex items-center gap-1.5">
+   854→   854→                              <span>{li.emoji}</span>
+   855→   855→                              {li.name} x{li.qty}
+   856→   856→                            </span>
+   857→   857→                            <span className="font-medium">
+   858→   858→                              {KES(li.lineTotal)}
+   859→   859→                            </span>
+   860→   860→                          </div>
+   861→   861→                        ))}
+   862→   862→                        <div className="flex items-center justify-between border-t border-border pt-1.5 text-xs font-semibold">
+   863→   863→                          <span>Subtotal</span>
+   864→   864→                          <span>{KES(v.subtotal)}</span>
+   865→   865→                        </div>
+   866→   866→                      </div>
+   867→   867→                    )}
+   868→   868→                  </Card>
+   869→   869→                  );
+   870→   870→                })}
+   871→   871→              </div>
+   872→   872→            </div>
+   873→   873→
+   874→   874→            <div className="rounded-xl bg-muted/60 p-3 text-center text-[11px] text-muted-foreground">
+   875→   875→              <CheckCircle2
+   876→   876→                size={12}
+   877→   877→                className="mr-1 inline text-brand"
+   878→   878→              />
+   879→   879→              Prices are live from verified vendors in your area.
+   880→   880→              <br />
+   881→   881→              <span className="inline-flex items-center gap-0.5">
+   882→   882→                <Star size={10} className="text-gold" /> Ratings reflect customer satisfaction.
+   883→   883→                Click any vendor to view their item breakdown and decide.
+   884→   884→              </span>
+   885→   885→            </div>
+   886→   886→          </div>
+   887→   887→        </ScrollArea>
+   888→   888→      </DialogContent>
+   889→   889→    </Dialog>
+   890→   890→  );
+   891→   891→}

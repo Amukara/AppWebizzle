@@ -1,0 +1,1995 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import {
+     5→  Lock,
+     6→  Loader2,
+     7→  RefreshCw,
+     8→  LogOut,
+     9→  Package,
+    10→  Truck,
+    11→  Store,
+    12→  Rocket,
+    13→  Receipt,
+    14→  LayoutDashboard,
+    15→  TrendingUp,
+    16→  CheckCircle2,
+    17→  XCircle,
+    18→  Phone,
+    19→  MapPin,
+    20→  ImageOff,
+    21→  Pause,
+    22→  Play,
+    23→} from "lucide-react";
+    24→import {
+    25→  ResponsiveContainer,
+    26→  BarChart,
+    27→  Bar,
+    28→  XAxis,
+    29→  YAxis,
+    30→  Tooltip,
+    31→  CartesianGrid,
+    32→} from "recharts";
+    33→import { Button } from "@/components/ui/button";
+    34→import { Card, CardContent } from "@/components/ui/card";
+    35→import { Badge } from "@/components/ui/badge";
+    36→import { Input } from "@/components/ui/input";
+    37→import { Label } from "@/components/ui/label";
+    38→import {
+    39→  Tabs,
+    40→  TabsList,
+    41→  TabsTrigger,
+    42→  TabsContent,
+    43→} from "@/components/ui/tabs";
+    44→import {
+    45→  Select,
+    46→  SelectContent,
+    47→  SelectItem,
+    48→  SelectTrigger,
+    49→  SelectValue,
+    50→} from "@/components/ui/select";
+    51→import { cn } from "@/lib/utils";
+    52→import { KES } from "../logo";
+    53→import { StatusPill } from "../ui";
+    54→import type {
+    55→  AdminDashboard,
+    56→  AdminOrder,
+    57→  AdminDispatch,
+    58→  AdminVendorApp,
+    59→  AdminBoost,
+    60→  AdminReceipt,
+    61→  AdminPresence,
+    62→} from "@/lib/types";
+    63→
+    64→// ---------- fetch helper ----------
+    65→// Auth uses BOTH an httpOnly cookie (for first-party/direct-nav contexts) AND
+    66→// a bearer-style `x-admin-token` header (for third-party iframe contexts like
+    67→// the preview panel, where SameSite cookies are blocked). The token lives in
+    68→// sessionStorage and is attached to every admin fetch.
+    69→const TOKEN_KEY = "wb_admin_token";
+    70→function getToken(): string | null {
+    71→  if (typeof window === "undefined") return null;
+    72→  try {
+    73→    return sessionStorage.getItem(TOKEN_KEY);
+    74→  } catch {
+    75→    return null;
+    76→  }
+    77→}
+    78→function setToken(token: string | null) {
+    79→  if (typeof window === "undefined") return;
+    80→  try {
+    81→    if (token) sessionStorage.setItem(TOKEN_KEY, token);
+    82→    else sessionStorage.removeItem(TOKEN_KEY);
+    83→  } catch {
+    84→    // ignore
+    85→  }
+    86→}
+    87→
+    88→async function adminFetch<T>(
+    89→  url: string,
+    90→  init?: RequestInit,
+    91→  onUnauthorized?: () => void
+    92→): Promise<T> {
+    93→  const token = getToken();
+    94→  const doFetch = () =>
+    95→    fetch(url, {
+    96→      ...init,
+    97→      headers: {
+    98→        "Content-Type": "application/json",
+    99→        ...(token ? { "x-admin-token": token } : {}),
+   100→        ...(init?.headers ?? {}),
+   101→      },
+   102→      cache: "no-store",
+   103→      credentials: "same-origin",
+   104→    });
+   105→
+   106→  let res = await doFetch();
+   107→  if (res.status === 401) {
+   108→    // Transient cookie-commit race: retry once after a brief delay.
+   109→    await new Promise((r) => setTimeout(r, 500));
+   110→    res = await doFetch();
+   111→  }
+   112→  if (res.status === 401) {
+   113→    onUnauthorized?.();
+   114→    throw new Error("Unauthorized");
+   115→  }
+   116→  if (!res.ok) {
+   117→    throw new Error(`Request failed (${res.status})`);
+   118→  }
+   119→  return (await res.json()) as T;
+   120→}
+   121→
+   122→// ---------- small UI atoms ----------
+   123→function StatCard({
+   124→  label,
+   125→  value,
+   126→  hint,
+   127→  accent,
+   128→  icon,
+   129→}: {
+   130→  label: string;
+   131→  value: string;
+   132→  hint?: string;
+   133→  accent: "brand" | "gold" | "mpesa" | "muted";
+   134→  icon?: React.ReactNode;
+   135→}) {
+   136→  const accentMap: Record<string, string> = {
+   137→    brand: "bg-brand-light text-brand",
+   138→    gold: "bg-gold/15 text-gold-dark",
+   139→    mpesa: "bg-mpesa/10 text-mpesa",
+   140→    muted: "bg-muted text-muted-foreground",
+   141→  };
+   142→  return (
+   143→    <Card className="overflow-hidden">
+   144→      <CardContent className="p-4">
+   145→        <div className="flex items-start justify-between gap-2">
+   146→          <div className="min-w-0">
+   147→            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+   148→              {label}
+   149→            </p>
+   150→            <p className="mt-1 truncate text-xl font-bold text-foreground sm:text-2xl">
+   151→              {value}
+   152→            </p>
+   153→            {hint && (
+   154→              <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+   155→            )}
+   156→          </div>
+   157→          {icon && (
+   158→            <span
+   159→              className={cn(
+   160→                "flex size-9 shrink-0 items-center justify-center rounded-lg",
+   161→                accentMap[accent]
+   162→              )}
+   163→            >
+   164→              {icon}
+   165→            </span>
+   166→          )}
+   167→        </div>
+   168→      </CardContent>
+   169→    </Card>
+   170→  );
+   171→}
+   172→
+   173→function SectionError({ message }: { message: string }) {
+   174→  return (
+   175→    <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+   176→      {message}
+   177→    </div>
+   178→  );
+   179→}
+   180→
+   181→function EmptyState({
+   182→  icon,
+   183→  label,
+   184→}: {
+   185→  icon: React.ReactNode;
+   186→  label: string;
+   187→}) {
+   188→  return (
+   189→    <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-muted-foreground">
+   190→      <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+   191→        {icon}
+   192→      </div>
+   193→      <p className="text-sm font-medium">{label}</p>
+   194→    </div>
+   195→  );
+   196→}
+   197→
+   198→// Order status advance options. CONFIRMED -> DISPATCHED -> DELIVERED.
+   199→const ORDER_ADVANCE: { value: string; label: string }[] = [
+   200→  { value: "CONFIRMED", label: "Confirm order" },
+   201→  { value: "DISPATCHED", label: "Mark dispatched" },
+   202→  { value: "DELIVERED", label: "Mark delivered" },
+   203→];
+   204→
+   205→// ---------- Login gate ----------
+   206→function LoginGate({
+   207→  onLogin,
+   208→  error,
+   209→  submitting,
+   210→}: {
+   211→  onLogin: (username: string, password: string) => void;
+   212→  error: string | null;
+   213→  submitting: boolean;
+   214→}) {
+   215→  const [username, setUsername] = React.useState("");
+   216→  const [password, setPassword] = React.useState("");
+   217→  return (
+   218→    <div className="flex min-h-[60vh] items-center justify-center px-4 py-8">
+   219→      <Card className="w-full max-w-sm">
+   220→        <CardContent className="flex flex-col items-center gap-4 p-6">
+   221→          <span className="flex size-14 items-center justify-center rounded-full bg-brand-light text-brand">
+   222→            <Lock size={24} />
+   223→          </span>
+   224→          <div className="text-center">
+   225→            <h2 className="text-lg font-bold text-foreground">Operator sign-in</h2>
+   226→            <p className="mt-1 text-sm text-muted-foreground">
+   227→              Restricted area. Sign in with your operator credentials.
+   228→            </p>
+   229→          </div>
+   230→          <form
+   231→            className="flex w-full flex-col gap-3"
+   232→            onSubmit={(e) => {
+   233→              e.preventDefault();
+   234→              onLogin(username, password);
+   235→            }}
+   236→          >
+   237→            <div className="space-y-1.5">
+   238→              <Label htmlFor="admin-user" className="text-xs font-medium">
+   239→                Username
+   240→              </Label>
+   241→              <Input
+   242→                id="admin-user"
+   243→                type="text"
+   244→                autoComplete="username"
+   245→                placeholder="admin"
+   246→                value={username}
+   247→                onChange={(e) => setUsername(e.target.value)}
+   248→                autoFocus
+   249→              />
+   250→            </div>
+   251→            <div className="space-y-1.5">
+   252→              <Label htmlFor="admin-pass2" className="text-xs font-medium">
+   253→                Password
+   254→              </Label>
+   255→              <Input
+   256→                id="admin-pass2"
+   257→                type="password"
+   258→                autoComplete="current-password"
+   259→                placeholder="••••••••"
+   260→                value={password}
+   261→                onChange={(e) => setPassword(e.target.value)}
+   262→              />
+   263→            </div>
+   264→            {error && (
+   265→              <p className="text-sm font-medium text-red-600">{error}</p>
+   266→            )}
+   267→            <Button
+   268→              type="submit"
+   269→              className="bg-brand text-white hover:bg-brand-dark"
+   270→              disabled={submitting || !username || !password}
+   271→            >
+   272→              {submitting ? (
+   273→                <Loader2 className="animate-spin" size={16} />
+   274→              ) : (
+   275→                <Lock size={16} />
+   276→              )}
+   277→              Sign in
+   278→            </Button>
+   279→          </form>
+   280→          <p className="text-center text-[11px] text-muted-foreground">
+   281→            Access is granted per operator. Contact your supervisor if you need
+   282→            credentials.
+   283→          </p>
+   284→        </CardContent>
+   285→      </Card>
+   286→    </div>
+   287→  );
+   288→}
+   289→
+   290→// ---------- Presence (online vendors + riders) ----------
+   291→function PresenceSection() {
+   292→  const [data, setData] = React.useState<AdminPresence | null>(null);
+   293→  const [loading, setLoading] = React.useState(true);
+   294→
+   295→  const load = React.useCallback(async () => {
+   296→    try {
+   297→      const res = await adminFetch<AdminPresence>("/api/admin/presence");
+   298→      setData(res);
+   299→    } catch {
+   300→      setData(null);
+   301→    } finally {
+   302→      setLoading(false);
+   303→    }
+   304→  }, []);
+   305→
+   306→  React.useEffect(() => {
+   307→    void load();
+   308→    const t = setInterval(load, 10000);
+   309→    return () => clearInterval(t);
+   310→  }, [load]);
+   311→
+   312→  return (
+   313→    <section>
+   314→      <div className="mb-3 flex items-center justify-between">
+   315→        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+   316→          Live presence
+   317→        </h3>
+   318→        {data && (
+   319→          <span className="text-xs text-muted-foreground">
+   320→            <span className="font-bold text-brand">{data.summary.vendorsOnline}</span> vendors ·{" "}
+   321→            <span className="font-bold text-brand">{data.summary.ridersOnline}</span> riders online
+   322→          </span>
+   323→        )}
+   324→      </div>
+   325→      {loading && !data ? (
+   326→        <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+   327→          <Loader2 className="animate-spin" size={14} /> Loading presence…
+   328→        </div>
+   329→      ) : !data ? (
+   330→        <p className="text-sm text-muted-foreground">Could not load presence.</p>
+   331→      ) : (
+   332→        <div className="grid gap-4 md:grid-cols-2">
+   333→          {/* Vendors */}
+   334→          <Card>
+   335→            <CardContent className="p-4">
+   336→              <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+   337→                Vendors ({data.summary.vendorsOnline}/{data.summary.vendorsTotal} online)
+   338→              </h4>
+   339→              {data.vendors.length === 0 ? (
+   340→                <p className="text-xs text-muted-foreground">No vendor profiles yet.</p>
+   341→              ) : (
+   342→                <div className="max-h-64 space-y-1.5 overflow-y-auto wb-scroll">
+   343→                  {data.vendors.map((v) => (
+   344→                    <div
+   345→                      key={v.vendorId}
+   346→                      className="flex items-center gap-2 rounded-lg border border-border p-2"
+   347→                    >
+   348→                      <span
+   349→                        className={
+   350→                          "h-2.5 w-2.5 shrink-0 rounded-full " +
+   351→                          (v.isOnline ? "bg-brand animate-pulse" : "bg-muted-foreground/30")
+   352→                        }
+   353→                      />
+   354→                      <span className="text-lg">{v.emoji}</span>
+   355→                      <div className="min-w-0 flex-1">
+   356→                        <div className="truncate text-sm font-semibold">{v.shopName}</div>
+   357→                        <div className="text-[11px] text-muted-foreground">
+   358→                          {v.type} · duty {v.dutyStart}–{v.dutyEnd}
+   359→                        </div>
+   360→                      </div>
+   361→                      <span
+   362→                        className={
+   363→                          "rounded-full px-2 py-0.5 text-[10px] font-bold " +
+   364→                          (v.isOnline
+   365→                            ? "bg-brand-light text-brand"
+   366→                            : "bg-muted text-muted-foreground")
+   367→                        }
+   368→                      >
+   369→                        {v.isOnline ? "ONLINE" : "OFFLINE"}
+   370→                      </span>
+   371→                    </div>
+   372→                  ))}
+   373→                </div>
+   374→              )}
+   375→            </CardContent>
+   376→          </Card>
+   377→          {/* Riders */}
+   378→          <Card>
+   379→            <CardContent className="p-4">
+   380→              <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+   381→                Riders ({data.summary.ridersOnline}/{data.summary.ridersTotal} online)
+   382→              </h4>
+   383→              {data.riders.length === 0 ? (
+   384→                <p className="text-xs text-muted-foreground">No rider profiles yet.</p>
+   385→              ) : (
+   386→                <div className="max-h-64 space-y-1.5 overflow-y-auto wb-scroll">
+   387→                  {data.riders.map((r) => (
+   388→                    <div
+   389→                      key={r.riderKey}
+   390→                      className="flex items-center gap-2 rounded-lg border border-border p-2"
+   391→                    >
+   392→                      <span
+   393→                        className={
+   394→                          "h-2.5 w-2.5 shrink-0 rounded-full " +
+   395→                          (r.isOnline ? "bg-brand animate-pulse" : "bg-muted-foreground/30")
+   396→                        }
+   397→                      />
+   398→                      <span className="text-lg">🛵</span>
+   399→                      <div className="min-w-0 flex-1">
+   400→                        <div className="truncate text-sm font-semibold">
+   401→                          {r.fullName || "Rider"}
+   402→                        </div>
+   403→                        <div className="text-[11px] text-muted-foreground">
+   404→                          <span className="font-mono">{r.plate || "—"}</span> · {r.phone}
+   405→                        </div>
+   406→                      </div>
+   407→                      <span
+   408→                        className={
+   409→                          "rounded-full px-2 py-0.5 text-[10px] font-bold " +
+   410→                          (r.isOnline
+   411→                            ? "bg-brand-light text-brand"
+   412→                            : "bg-muted text-muted-foreground")
+   413→                        }
+   414→                      >
+   415→                        {r.isOnline ? "ONLINE" : "OFFLINE"}
+   416→                      </span>
+   417→                    </div>
+   418→                  ))}
+   419→                </div>
+   420→              )}
+   421→            </CardContent>
+   422→          </Card>
+   423→        </div>
+   424→      )}
+   425→    </section>
+   426→  );
+   427→}
+   428→
+   429→// ---------- Overview tab ----------
+   430→function OverviewTab({
+   431→  dashboard,
+   432→  loading,
+   433→  error,
+   434→}: {
+   435→  dashboard: AdminDashboard | null;
+   436→  loading: boolean;
+   437→  error: string | null;
+   438→}) {
+   439→  if (loading && !dashboard) {
+   440→    return (
+   441→      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+   442→        <Loader2 className="animate-spin" size={18} />
+   443→        <span className="text-sm">Loading analytics…</span>
+   444→      </div>
+   445→    );
+   446→  }
+   447→  if (error) return <SectionError message={error} />;
+   448→  if (!dashboard) return null;
+   449→
+   450→  return (
+   451→    <div className="flex flex-col gap-6">
+   452→      {/* Revenue cards */}
+   453→      <section>
+   454→        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+   455→          Revenue
+   456→        </h3>
+   457→        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+   458→          <StatCard
+   459→            label="Platform fees"
+   460→            value={KES(dashboard.platformRevenue)}
+   461→            hint="3% levy on orders > KES 300"
+   462→            accent="brand"
+   463→            icon={<TrendingUp size={18} />}
+   464→          />
+   465→          <StatCard
+   466→            label="Driver levies"
+   467→            value={KES(dashboard.driverLevyRevenue)}
+   468→            hint="10% of delivery fees"
+   469→            accent="mpesa"
+   470→            icon={<Truck size={18} />}
+   471→          />
+   472→          <StatCard
+   473→            label="Boost revenue"
+   474→            value={KES(dashboard.boostRevenue)}
+   475→            hint={`${dashboard.activeBoosts} active campaign${
+   476→              dashboard.activeBoosts === 1 ? "" : "s"
+   477→            }`}
+   478→            accent="gold"
+   479→            icon={<Rocket size={18} />}
+   480→          />
+   481→          <StatCard
+   482→            label="GMV"
+   483→            value={KES(dashboard.grossMerchandiseValue)}
+   484→            hint={`Avg ${KES(dashboard.avgOrderValue)} / order`}
+   485→            accent="brand"
+   486→            icon={<Package size={18} />}
+   487→          />
+   488→        </div>
+   489→      </section>
+   490→
+   491→      {/* Operations cards */}
+   492→      <section>
+   493→        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+   494→          Operations
+   495→        </h3>
+   496→        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+   497→          <StatCard
+   498→            label="Total orders"
+   499→            value={String(dashboard.totalOrders)}
+   500→            accent="muted"
+   501→            icon={<Package size={18} />}
+   502→          />
+   503→          <StatCard
+   504→            label="Pending dispatch"
+   505→            value={String(dashboard.pendingDispatch)}
+   506→            hint="Confirmed, awaiting rider"
+   507→            accent="gold"
+   508→            icon={<Loader2 size={18} />}
+   509→          />
+   510→          <StatCard
+   511→            label="In transit"
+   512→            value={String(dashboard.inTransit)}
+   513→            hint="Out for delivery"
+   514→            accent="mpesa"
+   515→            icon={<Truck size={18} />}
+   516→          />
+   517→          <StatCard
+   518→            label="Delivered"
+   519→            value={String(dashboard.delivered)}
+   520→            accent="brand"
+   521→            icon={<CheckCircle2 size={18} />}
+   522→          />
+   523→        </div>
+   524→      </section>
+   525→
+   526→      {/* Chart + top vendors */}
+   527→      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+   528→        <Card className="lg:col-span-3">
+   529→          <CardContent className="p-4 sm:p-6">
+   530→            <div className="mb-3 flex items-center justify-between">
+   531→              <h3 className="text-sm font-semibold text-foreground">
+   532→                Orders · last 7 days
+   533→              </h3>
+   534→              <Badge variant="secondary" className="font-mono text-xs">
+   535→                {dashboard.ordersLast7Days.reduce(
+   536→                  (s, d) => s + d.count,
+   537→                  0
+   538→                )}{" "}
+   539→                orders
+   540→              </Badge>
+   541→            </div>
+   542→            <div className="h-56 w-full">
+   543→              <ResponsiveContainer width="100%" height="100%">
+   544→                <BarChart
+   545→                  data={dashboard.ordersLast7Days}
+   546→                  margin={{ top: 6, right: 8, left: -18, bottom: 0 }}
+   547→                >
+   548→                  <CartesianGrid
+   549→                    strokeDasharray="3 3"
+   550→                    vertical={false}
+   551→                    stroke="var(--border, #e5e7eb)"
+   552→                  />
+   553→                  <XAxis
+   554→                    dataKey="day"
+   555→                    tickLine={false}
+   556→                    axisLine={false}
+   557→                    fontSize={12}
+   558→                  />
+   559→                  <YAxis
+   560→                    allowDecimals={false}
+   561→                    tickLine={false}
+   562→                    axisLine={false}
+   563→                    fontSize={12}
+   564→                  />
+   565→                  <Tooltip
+   566→                    cursor={{ fill: "var(--brand-light, #E6F4EE)" }}
+   567→                    contentStyle={{
+   568→                      borderRadius: 8,
+   569→                      border: "1px solid var(--border, #e5e7eb)",
+   570→                      fontSize: 12,
+   571→                    }}
+   572→                    formatter={(value: number) => [value, "Orders"]}
+   573→                  />
+   574→                  <Bar
+   575→                    dataKey="count"
+   576→                    fill="var(--brand, #0B7A4F)"
+   577→                    radius={[6, 6, 0, 0]}
+   578→                    maxBarSize={48}
+   579→                  />
+   580→                </BarChart>
+   581→              </ResponsiveContainer>
+   582→            </div>
+   583→          </CardContent>
+   584→        </Card>
+   585→
+   586→        <Card className="lg:col-span-2">
+   587→          <CardContent className="p-4 sm:p-6">
+   588→            <h3 className="mb-3 text-sm font-semibold text-foreground">
+   589→              Top vendors
+   590→            </h3>
+   591→            {dashboard.topVendors.length === 0 ? (
+   592→              <EmptyState
+   593→                icon={<Store size={18} />}
+   594→                label="No vendor orders yet."
+   595→              />
+   596→            ) : (
+   597→              <ul className="flex flex-col divide-y divide-border">
+   598→                {dashboard.topVendors.map((v, i) => (
+   599→                  <li
+   600→                    key={v.vendorId}
+   601→                    className="flex items-center gap-3 py-2.5"
+   602→                  >
+   603→                    <span className="w-5 text-center text-xs font-bold text-muted-foreground">
+   604→                      {i + 1}
+   605→                    </span>
+   606→                    <span className="text-2xl leading-none">{v.emoji}</span>
+   607→                    <div className="min-w-0 flex-1">
+   608→                      <p className="truncate text-sm font-semibold text-foreground">
+   609→                        {v.name}
+   610→                      </p>
+   611→                      <p className="text-xs text-muted-foreground">
+   612→                        {v.orders} order{v.orders === 1 ? "" : "s"} · payout{" "}
+   613→                        <span className="font-medium text-foreground">
+   614→                          {KES(v.payout)}
+   615→                        </span>
+   616→                      </p>
+   617→                    </div>
+   618→                    <span className="text-right text-sm font-bold text-brand">
+   619→                      {KES(v.revenue)}
+   620→                    </span>
+   621→                  </li>
+   622→                ))}
+   623→              </ul>
+   624→            )}
+   625→          </CardContent>
+   626→        </Card>
+   627→      </div>
+   628→
+   629→      {/* Referral + receipt summary */}
+   630→      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+   631→        <Card>
+   632→          <CardContent className="p-4">
+   633→            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+   634→              Referral signups
+   635→            </p>
+   636→            <p className="mt-1 text-2xl font-bold text-foreground">
+   637→              {dashboard.referralSignups}
+   638→            </p>
+   639→            <p className="mt-1 text-xs text-muted-foreground">
+   640→              {dashboard.referralOrders} orders · {KES(dashboard.referralRewardsPaid)}{" "}
+   641→              rewards paid
+   642→            </p>
+   643→          </CardContent>
+   644→        </Card>
+   645→        <Card>
+   646→          <CardContent className="p-4">
+   647→            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+   648→              Receipts pending
+   649→            </p>
+   650→            <p className="mt-1 text-2xl font-bold text-foreground">
+   651→              {dashboard.receiptsPending}
+   652→            </p>
+   653→            <p className="mt-1 text-xs text-muted-foreground">
+   654→              {dashboard.receiptsApproved} approved
+   655→            </p>
+   656→          </CardContent>
+   657→        </Card>
+   658→        <Card>
+   659→          <CardContent className="p-4">
+   660→            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+   661→              Tokens issued
+   662→            </p>
+   663→            <p className="mt-1 text-2xl font-bold text-foreground">
+   664→              {dashboard.tokensIssued}
+   665→            </p>
+   666→            <p className="mt-1 text-xs text-muted-foreground">
+   667→              From approved receipt uploads
+   668→            </p>
+   669→          </CardContent>
+   670→        </Card>
+   671→      </div>
+   672→
+   673→      {/* Live presence (online vendors + riders) */}
+   674→      <PresenceSection />
+   675→    </div>
+   676→  );
+   677→}
+   678→
+   679→// ---------- Orders tab ----------
+   680→function OrdersTab({
+   681→  orders,
+   682→  loading,
+   683→  error,
+   684→  onAdvance,
+   685→  advancingId,
+   686→}: {
+   687→  orders: AdminOrder[];
+   688→  loading: boolean;
+   689→  error: string | null;
+   690→  onAdvance: (id: string, status: string) => void;
+   691→  advancingId: string | null;
+   692→}) {
+   693→  if (loading && orders.length === 0) {
+   694→    return (
+   695→      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+   696→        <Loader2 className="animate-spin" size={18} />
+   697→        <span className="text-sm">Loading orders…</span>
+   698→      </div>
+   699→    );
+   700→  }
+   701→  if (error) return <SectionError message={error} />;
+   702→  if (orders.length === 0) {
+   703→    return (
+   704→      <EmptyState icon={<Package size={18} />} label="No orders yet." />
+   705→    );
+   706→  }
+   707→
+   708→  return (
+   709→    <div className="flex flex-col gap-3">
+   710→      <div className="flex items-center justify-between">
+   711→        <h3 className="text-sm font-semibold text-foreground">
+   712→          All orders ({orders.length})
+   713→        </h3>
+   714→      </div>
+   715→      <div className="max-h-[70vh] overflow-y-auto wb-scroll rounded-md border border-border">
+   716→        <table className="w-full border-collapse text-sm">
+   717→          <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+   718→            <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+   719→              <th className="px-3 py-2 font-semibold">Order</th>
+   720→              <th className="px-3 py-2 font-semibold">Customer</th>
+   721→              <th className="px-3 py-2 font-semibold">Vendor</th>
+   722→              <th className="px-3 py-2 text-right font-semibold">Total</th>
+   723→              <th className="px-3 py-2 text-right font-semibold">Platform</th>
+   724→              <th className="px-3 py-2 text-right font-semibold">Driver levy</th>
+   725→              <th className="px-3 py-2 text-right font-semibold">Vendor pay</th>
+   726→              <th className="px-3 py-2 text-right font-semibold">Driver pay</th>
+   727→              <th className="px-3 py-2 font-semibold">Status</th>
+   728→              <th className="px-3 py-2 font-semibold">Advance</th>
+   729→            </tr>
+   730→          </thead>
+   731→          <tbody className="divide-y divide-border">
+   732→            {orders.map((o) => (
+   733→              <tr key={o.id} className="align-top hover:bg-muted/40">
+   734→                <td className="px-3 py-2 font-mono text-xs font-semibold text-foreground">
+   735→                  {o.id.slice(-8).toUpperCase()}
+   736→                  <div className="mt-0.5 text-[10px] font-normal text-muted-foreground">
+   737→                    {new Date(o.createdAt).toLocaleString("en-KE", {
+   738→                      day: "2-digit",
+   739→                      month: "short",
+   740→                      hour: "2-digit",
+   741→                      minute: "2-digit",
+   742→                    })}
+   743→                  </div>
+   744→                </td>
+   745→                <td className="px-3 py-2">
+   746→                  <div className="font-medium text-foreground">
+   747→                    {o.customerName}
+   748→                  </div>
+   749→                  <div className="text-xs text-muted-foreground">{o.phone}</div>
+   750→                </td>
+   751→                <td className="px-3 py-2">
+   752→                  <div className="flex items-center gap-1.5">
+   753→                    <span>{o.vendor.emoji}</span>
+   754→                    <span className="font-medium text-foreground">
+   755→                      {o.vendor.name}
+   756→                    </span>
+   757→                  </div>
+   758→                </td>
+   759→                <td className="px-3 py-2 text-right font-semibold text-foreground">
+   760→                  {KES(o.total)}
+   761→                </td>
+   762→                <td className="px-3 py-2 text-right text-brand">
+   763→                  {KES(o.platformFee)}
+   764→                </td>
+   765→                <td className="px-3 py-2 text-right text-mpesa">
+   766→                  {KES(o.driverLevy)}
+   767→                </td>
+   768→                <td className="px-3 py-2 text-right text-foreground">
+   769→                  {KES(o.vendorPayout)}
+   770→                </td>
+   771→                <td className="px-3 py-2 text-right text-foreground">
+   772→                  {KES(o.driverPayout)}
+   773→                </td>
+   774→                <td className="px-3 py-2">
+   775→                  <StatusPill status={o.status} />
+   776→                </td>
+   777→                <td className="px-3 py-2">
+   778→                  <Select
+   779→                    value=""
+   780→                    onValueChange={(v) => {
+   781→                      if (v) onAdvance(o.id, v);
+   782→                    }}
+   783→                    disabled={
+   784→                      advancingId === o.id || o.status === "DELIVERED"
+   785→                    }
+   786→                  >
+   787→                    <SelectTrigger
+   788→                      size="sm"
+   789→                      className="h-8 w-[150px] text-xs"
+   790→                      aria-label={`Advance order ${o.id.slice(-8).toUpperCase()}`}
+   791→                    >
+   792→                      <SelectValue
+   793→                        placeholder={
+   794→                          o.status === "DELIVERED"
+   795→                            ? "Delivered"
+   796→                            : "Advance status"
+   797→                        }
+   798→                      />
+   799→                    </SelectTrigger>
+   800→                    <SelectContent>
+   801→                      {ORDER_ADVANCE.filter(
+   802→                        (opt) => opt.value !== o.status
+   803→                      ).map((opt) => (
+   804→                        <SelectItem
+   805→                          key={opt.value}
+   806→                          value={opt.value}
+   807→                          disabled={
+   808→                            (opt.value === "DELIVERED" &&
+   809→                              o.status !== "DISPATCHED") ||
+   810→                            (opt.value === "DISPATCHED" &&
+   811→                              o.status === "PLACED")
+   812→                          }
+   813→                        >
+   814→                          {opt.label}
+   815→                        </SelectItem>
+   816→                      ))}
+   817→                    </SelectContent>
+   818→                  </Select>
+   819→                </td>
+   820→              </tr>
+   821→            ))}
+   822→          </tbody>
+   823→        </table>
+   824→      </div>
+   825→    </div>
+   826→  );
+   827→}
+   828→
+   829→// ---------- Dispatches tab ----------
+   830→function DispatchesTab({
+   831→  dispatches,
+   832→  loading,
+   833→  error,
+   834→  onAdvance,
+   835→  advancingId,
+   836→}: {
+   837→  dispatches: AdminDispatch[];
+   838→  loading: boolean;
+   839→  error: string | null;
+   840→  onAdvance: (id: string, status: string) => void;
+   841→  advancingId: string | null;
+   842→}) {
+   843→  if (loading && dispatches.length === 0) {
+   844→    return (
+   845→      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+   846→        <Loader2 className="animate-spin" size={18} />
+   847→        <span className="text-sm">Loading dispatches…</span>
+   848→      </div>
+   849→    );
+   850→  }
+   851→  if (error) return <SectionError message={error} />;
+   852→  if (dispatches.length === 0) {
+   853→    return (
+   854→      <EmptyState
+   855→        icon={<Truck size={18} />}
+   856→        label="No active dispatches right now."
+   857→      />
+   858→    );
+   859→  }
+   860→
+   861→  return (
+   862→    <div className="flex flex-col gap-3">
+   863→      <h3 className="text-sm font-semibold text-foreground">
+   864→        Active dispatches ({dispatches.length})
+   865→      </h3>
+   866→      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+   867→        {dispatches.map((d) => {
+   868→          const isConfirmed = d.status === "CONFIRMED";
+   869→          const isDispatched = d.status === "DISPATCHED";
+   870→          return (
+   871→            <Card key={d.orderId}>
+   872→              <CardContent className="flex flex-col gap-3 p-4">
+   873→                <div className="flex items-start justify-between gap-2">
+   874→                  <div className="flex items-center gap-2">
+   875→                    <span className="text-2xl leading-none">
+   876→                      {d.vendorEmoji}
+   877→                    </span>
+   878→                    <div>
+   879→                      <p className="text-sm font-semibold text-foreground">
+   880→                        {d.vendorName}
+   881→                      </p>
+   882→                      <p className="font-mono text-xs text-muted-foreground">
+   883→                        #{d.orderId.slice(-8).toUpperCase()}
+   884→                      </p>
+   885→                    </div>
+   886→                  </div>
+   887→                  <StatusPill status={d.status} />
+   888→                </div>
+   889→
+   890→                <div className="grid grid-cols-2 gap-2 text-xs">
+   891→                  <div>
+   892→                    <p className="text-muted-foreground">Customer</p>
+   893→                    <p className="font-medium text-foreground">
+   894→                      {d.customerName}
+   895→                    </p>
+   896→                  </div>
+   897→                  <div>
+   898→                    <p className="text-muted-foreground">Order total</p>
+   899→                    <p className="font-semibold text-foreground">
+   900→                      {KES(d.total)}
+   901→                    </p>
+   902→                  </div>
+   903→                  <div className="col-span-2 flex items-start gap-1.5">
+   904→                    <MapPin
+   905→                      size={14}
+   906→                      className="mt-0.5 shrink-0 text-muted-foreground"
+   907→                    />
+   908→                    <p className="text-foreground">{d.location}</p>
+   909→                  </div>
+   910→                  <div>
+   911→                    <p className="text-muted-foreground">Rider</p>
+   912→                    <p className="font-medium text-foreground">
+   913→                      {d.riderName ?? "Unassigned"}
+   914→                    </p>
+   915→                  </div>
+   916→                  <div>
+   917→                    <p className="text-muted-foreground">Plate</p>
+   918→                    <p className="font-mono font-medium text-foreground">
+   919→                      {d.riderPlate ?? "—"}
+   920→                    </p>
+   921→                  </div>
+   922→                  <div>
+   923→                    <p className="text-muted-foreground">Rider earns</p>
+   924→                    <p className="font-semibold text-mpesa">
+   925→                      {KES(d.driverPayout)}
+   926→                    </p>
+   927→                  </div>
+   928→                  <div>
+   929→                    <p className="text-muted-foreground">Levy (10%)</p>
+   930→                    <p className="font-semibold text-brand">
+   931→                      {KES(d.driverLevy)}
+   932→                    </p>
+   933→                  </div>
+   934→                  <div>
+   935→                    <p className="text-muted-foreground">ETA</p>
+   936→                    <p className="font-medium text-foreground">
+   937→                      ~{d.etaMinutes} min
+   938→                    </p>
+   939→                  </div>
+   940→                </div>
+   941→
+   942→                <div className="flex gap-2 pt-1">
+   943→                  {isConfirmed && (
+   944→                    <Button
+   945→                      size="sm"
+   946→                      className="flex-1 bg-brand text-white hover:bg-brand-dark"
+   947→                      disabled={advancingId === d.orderId}
+   948→                      onClick={() => onAdvance(d.orderId, "DISPATCHED")}
+   949→                    >
+   950→                      {advancingId === d.orderId ? (
+   951→                        <Loader2 className="animate-spin" size={14} />
+   952→                      ) : (
+   953→                        <Truck size={14} />
+   954→                      )}
+   955→                      Mark dispatched
+   956→                    </Button>
+   957→                  )}
+   958→                  {isDispatched && (
+   959→                    <Button
+   960→                      size="sm"
+   961→                      className="flex-1 bg-mpesa text-white hover:bg-mpesa/90"
+   962→                      disabled={advancingId === d.orderId}
+   963→                      onClick={() => onAdvance(d.orderId, "DELIVERED")}
+   964→                    >
+   965→                      {advancingId === d.orderId ? (
+   966→                        <Loader2 className="animate-spin" size={14} />
+   967→                      ) : (
+   968→                        <CheckCircle2 size={14} />
+   969→                      )}
+   970→                      Mark delivered
+   971→                    </Button>
+   972→                  )}
+   973→                </div>
+   974→              </CardContent>
+   975→            </Card>
+   976→          );
+   977→        })}
+   978→      </div>
+   979→    </div>
+   980→  );
+   981→}
+   982→
+   983→// ---------- Vendor approvals tab ----------
+   984→function DocThumb({ dataUrl, alt }: { dataUrl: string | null; alt: string }) {
+   985→  if (!dataUrl) {
+   986→    return (
+   987→      <div
+   988→        className="flex size-12 items-center justify-center rounded-md border border-dashed border-border bg-muted text-muted-foreground"
+   989→        title={`${alt}: not provided`}
+   990→        aria-label={`${alt}: not provided`}
+   991→      >
+   992→        <ImageOff size={14} />
+   993→      </div>
+   994→    );
+   995→  }
+   996→  return (
+   997→    <img
+   998→      src={dataUrl}
+   999→      alt={alt}
+  1000→      className="size-12 rounded-md border border-border object-cover"
+  1001→    />
+  1002→  );
+  1003→}
+  1004→
+  1005→function VendorApprovalsTab({
+  1006→  applications,
+  1007→  loading,
+  1008→  error,
+  1009→  onDecide,
+  1010→  decidingId,
+  1011→}: {
+  1012→  applications: AdminVendorApp[];
+  1013→  loading: boolean;
+  1014→  error: string | null;
+  1015→  onDecide: (id: string, status: "APPROVED" | "REJECTED") => void;
+  1016→  decidingId: string | null;
+  1017→}) {
+  1018→  if (loading && applications.length === 0) {
+  1019→    return (
+  1020→      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+  1021→        <Loader2 className="animate-spin" size={18} />
+  1022→        <span className="text-sm">Loading applications…</span>
+  1023→      </div>
+  1024→    );
+  1025→  }
+  1026→  if (error) return <SectionError message={error} />;
+  1027→  if (applications.length === 0) {
+  1028→    return (
+  1029→      <EmptyState
+  1030→        icon={<Store size={18} />}
+  1031→        label="No vendor applications yet."
+  1032→      />
+  1033→    );
+  1034→  }
+  1035→
+  1036→  const pending = applications.filter((a) => a.status === "PENDING");
+  1037→  const decided = applications.filter((a) => a.status !== "PENDING");
+  1038→  const ordered = [...pending, ...decided];
+  1039→
+  1040→  return (
+  1041→    <div className="flex flex-col gap-3">
+  1042→      <h3 className="text-sm font-semibold text-foreground">
+  1043→        Vendor applications ({applications.length}) · {pending.length} pending
+  1044→      </h3>
+  1045→      <div className="max-h-[70vh] overflow-y-auto wb-scroll">
+  1046→        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+  1047→          {ordered.map((a) => {
+  1048→            const isPending = a.status === "PENDING";
+  1049→            return (
+  1050→              <Card key={a.id}>
+  1051→                <CardContent className="flex flex-col gap-3 p-4">
+  1052→                  <div className="flex items-start justify-between gap-2">
+  1053→                    <div className="flex items-center gap-3">
+  1054→                      {a.logo ? (
+  1055→                        <img
+  1056→                          src={a.logo}
+  1057→                          alt={`${a.shopName} logo`}
+  1058→                          className="size-12 rounded-md border border-border object-cover"
+  1059→                        />
+  1060→                      ) : (
+  1061→                        <div className="flex size-12 items-center justify-center rounded-md bg-brand-light text-brand">
+  1062→                          <Store size={20} />
+  1063→                        </div>
+  1064→                      )}
+  1065→                      <div>
+  1066→                        <p className="font-semibold text-foreground">
+  1067→                          {a.shopName}
+  1068→                        </p>
+  1069→                        <p className="text-xs text-muted-foreground">
+  1070→                          {a.ownerName}
+  1071→                        </p>
+  1072→                        <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+  1073→                          <Phone size={11} />
+  1074→                          {a.phone}
+  1075→                        </p>
+  1076→                      </div>
+  1077→                    </div>
+  1078→                    <StatusPill status={a.status} />
+  1079→                  </div>
+  1080→
+  1081→                  <div>
+  1082→                    <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+  1083→                      Verification documents
+  1084→                    </p>
+  1085→                    <div className="flex flex-wrap gap-2">
+  1086→                      <div className="flex flex-col items-center gap-1">
+  1087→                        <DocThumb dataUrl={a.tradeLicense} alt="Trade licence" />
+  1088→                        <span className="text-[10px] text-muted-foreground">
+  1089→                          Trade
+  1090→                        </span>
+  1091→                      </div>
+  1092→                      <div className="flex flex-col items-center gap-1">
+  1093→                        <DocThumb
+  1094→                          dataUrl={a.municipalLicense}
+  1095→                          alt="Municipal licence"
+  1096→                        />
+  1097→                        <span className="text-[10px] text-muted-foreground">
+  1098→                          Municipal
+  1099→                        </span>
+  1100→                      </div>
+  1101→                      <div className="flex flex-col items-center gap-1">
+  1102→                        <DocThumb dataUrl={a.kplcToken} alt="KPLC token" />
+  1103→                        <span className="text-[10px] text-muted-foreground">
+  1104→                          KPLC
+  1105→                        </span>
+  1106→                      </div>
+  1107→                    </div>
+  1108→                  </div>
+  1109→
+  1110→                  {isPending && (
+  1111→                    <div className="flex gap-2 pt-1">
+  1112→                      <Button
+  1113→                        size="sm"
+  1114→                        className="flex-1 bg-brand text-white hover:bg-brand-dark"
+  1115→                        disabled={decidingId === a.id}
+  1116→                        onClick={() => onDecide(a.id, "APPROVED")}
+  1117→                      >
+  1118→                        {decidingId === a.id ? (
+  1119→                          <Loader2 className="animate-spin" size={14} />
+  1120→                        ) : (
+  1121→                          <CheckCircle2 size={14} />
+  1122→                        )}
+  1123→                        Approve
+  1124→                      </Button>
+  1125→                      <Button
+  1126→                        size="sm"
+  1127→                        variant="outline"
+  1128→                        className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+  1129→                        disabled={decidingId === a.id}
+  1130→                        onClick={() => onDecide(a.id, "REJECTED")}
+  1131→                      >
+  1132→                        <XCircle size={14} />
+  1133→                        Reject
+  1134→                      </Button>
+  1135→                    </div>
+  1136→                  )}
+  1137→                </CardContent>
+  1138→              </Card>
+  1139→            );
+  1140→          })}
+  1141→        </div>
+  1142→      </div>
+  1143→    </div>
+  1144→  );
+  1145→}
+  1146→
+  1147→// ---------- Boosts tab ----------
+  1148→function BoostsTab({
+  1149→  boosts,
+  1150→  loading,
+  1151→  error,
+  1152→  onDecide,
+  1153→  decidingId,
+  1154→  totalRevenue,
+  1155→}: {
+  1156→  boosts: AdminBoost[];
+  1157→  loading: boolean;
+  1158→  error: string | null;
+  1159→  onDecide: (id: string, status: "ACTIVE" | "PAUSED" | "EXPIRED") => void;
+  1160→  decidingId: string | null;
+  1161→  totalRevenue: number;
+  1162→}) {
+  1163→  if (loading && boosts.length === 0) {
+  1164→    return (
+  1165→      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+  1166→        <Loader2 className="animate-spin" size={18} />
+  1167→        <span className="text-sm">Loading boosts…</span>
+  1168→      </div>
+  1169→    );
+  1170→  }
+  1171→  if (error) return <SectionError message={error} />;
+  1172→  if (boosts.length === 0) {
+  1173→    return (
+  1174→      <EmptyState
+  1175→        icon={<Rocket size={18} />}
+  1176→        label="No boost campaigns yet."
+  1177→      />
+  1178→    );
+  1179→  }
+  1180→
+  1181→  return (
+  1182→    <div className="flex flex-col gap-3">
+  1183→      <div className="flex items-center justify-between">
+  1184→        <h3 className="text-sm font-semibold text-foreground">
+  1185→          Boost campaigns ({boosts.length})
+  1186→        </h3>
+  1187→        <Badge className="bg-gold/15 text-gold-dark">
+  1188→          Total revenue: {KES(totalRevenue)}
+  1189→        </Badge>
+  1190→      </div>
+  1191→      <div className="max-h-[70vh] overflow-y-auto wb-scroll">
+  1192→        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+  1193→          {boosts.map((b) => {
+  1194→            const isActive = b.status === "ACTIVE";
+  1195→            const isPaused = b.status === "PAUSED";
+  1196→            return (
+  1197→              <Card key={b.id}>
+  1198→                <CardContent className="flex flex-col gap-3 p-4">
+  1199→                  <div className="flex items-start justify-between gap-2">
+  1200→                    <div>
+  1201→                      <p className="font-semibold text-foreground">
+  1202→                        {b.shopName}
+  1203→                      </p>
+  1204→                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+  1205→                        <Phone size={11} />
+  1206→                        {b.phone}
+  1207→                      </p>
+  1208→                    </div>
+  1209→                    <Badge className="bg-gold text-white">{b.package}</Badge>
+  1210→                  </div>
+  1211→
+  1212→                  <div className="grid grid-cols-2 gap-2 text-xs">
+  1213→                    <div>
+  1214→                      <p className="text-muted-foreground">Price</p>
+  1215→                      <p className="font-semibold text-foreground">
+  1216→                        {KES(b.price)}
+  1217→                      </p>
+  1218→                    </div>
+  1219→                    <div>
+  1220→                      <p className="text-muted-foreground">Status</p>
+  1221→                      <StatusPill status={b.status} />
+  1222→                    </div>
+  1223→                    <div>
+  1224→                      <p className="text-muted-foreground">Impressions</p>
+  1225→                      <p className="font-medium text-foreground">
+  1226→                        {b.impressions.toLocaleString("en-KE")}
+  1227→                      </p>
+  1228→                    </div>
+  1229→                    <div>
+  1230→                      <p className="text-muted-foreground">Clicks</p>
+  1231→                      <p className="font-medium text-foreground">
+  1232→                        {b.clicks.toLocaleString("en-KE")}
+  1233→                      </p>
+  1234→                    </div>
+  1235→                    <div className="col-span-2">
+  1236→                      <p className="text-muted-foreground">Run window</p>
+  1237→                      <p className="font-medium text-foreground">
+  1238→                        {new Date(b.startsAt).toLocaleDateString("en-KE", {
+  1239→                          day: "2-digit",
+  1240→                          month: "short",
+  1241→                        })}{" "}
+  1242→                        →{" "}
+  1243→                        {new Date(b.endsAt).toLocaleDateString("en-KE", {
+  1244→                          day: "2-digit",
+  1245→                          month: "short",
+  1246→                          year: "numeric",
+  1247→                        })}
+  1248→                      </p>
+  1249→                    </div>
+  1250→                  </div>
+  1251→
+  1252→                  <div className="flex gap-2 pt-1">
+  1253→                    {isActive && (
+  1254→                      <Button
+  1255→                        size="sm"
+  1256→                        variant="outline"
+  1257→                        className="flex-1"
+  1258→                        disabled={decidingId === b.id}
+  1259→                        onClick={() => onDecide(b.id, "PAUSED")}
+  1260→                      >
+  1261→                        {decidingId === b.id ? (
+  1262→                          <Loader2 className="animate-spin" size={14} />
+  1263→                        ) : (
+  1264→                          <Pause size={14} />
+  1265→                        )}
+  1266→                        Pause
+  1267→                      </Button>
+  1268→                    )}
+  1269→                    {isPaused && (
+  1270→                      <Button
+  1271→                        size="sm"
+  1272→                        className="flex-1 bg-brand text-white hover:bg-brand-dark"
+  1273→                        disabled={decidingId === b.id}
+  1274→                        onClick={() => onDecide(b.id, "ACTIVE")}
+  1275→                      >
+  1276→                        {decidingId === b.id ? (
+  1277→                          <Loader2 className="animate-spin" size={14} />
+  1278→                        ) : (
+  1279→                          <Play size={14} />
+  1280→                        )}
+  1281→                        Resume
+  1282→                      </Button>
+  1283→                    )}
+  1284→                    {b.status === "EXPIRED" && (
+  1285→                      <Badge
+  1286→                        variant="secondary"
+  1287→                        className="w-full justify-center py-1.5"
+  1288→                      >
+  1289→                        Expired
+  1290→                      </Badge>
+  1291→                    )}
+  1292→                  </div>
+  1293→                </CardContent>
+  1294→              </Card>
+  1295→            );
+  1296→          })}
+  1297→        </div>
+  1298→      </div>
+  1299→    </div>
+  1300→  );
+  1301→}
+  1302→
+  1303→// ---------- Receipts tab ----------
+  1304→function ReceiptsTab({
+  1305→  receipts,
+  1306→  loading,
+  1307→  error,
+  1308→  onDecide,
+  1309→  decidingId,
+  1310→}: {
+  1311→  receipts: AdminReceipt[];
+  1312→  loading: boolean;
+  1313→  error: string | null;
+  1314→  onDecide: (id: string, status: "APPROVED" | "REJECTED") => void;
+  1315→  decidingId: string | null;
+  1316→}) {
+  1317→  if (loading && receipts.length === 0) {
+  1318→    return (
+  1319→      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+  1320→        <Loader2 className="animate-spin" size={18} />
+  1321→        <span className="text-sm">Loading receipts…</span>
+  1322→      </div>
+  1323→    );
+  1324→  }
+  1325→  if (error) return <SectionError message={error} />;
+  1326→  if (receipts.length === 0) {
+  1327→    return (
+  1328→      <EmptyState
+  1329→        icon={<Receipt size={18} />}
+  1330→        label="No receipt submissions yet."
+  1331→      />
+  1332→    );
+  1333→  }
+  1334→
+  1335→  const pending = receipts.filter((r) => r.status === "PENDING");
+  1336→  const decided = receipts.filter((r) => r.status !== "PENDING");
+  1337→  const ordered = [...pending, ...decided];
+  1338→
+  1339→  return (
+  1340→    <div className="flex flex-col gap-3">
+  1341→      <h3 className="text-sm font-semibold text-foreground">
+  1342→        Receipt submissions ({receipts.length}) · {pending.length} pending
+  1343→      </h3>
+  1344→      <div className="max-h-[70vh] overflow-y-auto wb-scroll">
+  1345→        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+  1346→          {ordered.map((r) => {
+  1347→            const isPending = r.status === "PENDING";
+  1348→            return (
+  1349→              <Card key={r.id}>
+  1350→                <CardContent className="flex flex-col gap-3 p-4">
+  1351→                  <div className="flex items-center justify-between gap-2">
+  1352→                    <div>
+  1353→                      <p className="text-xs text-muted-foreground">
+  1354→                        Customer phone
+  1355→                      </p>
+  1356→                      <p className="font-mono text-sm font-medium text-foreground">
+  1357→                        {r.customerPhone}
+  1358→                      </p>
+  1359→                    </div>
+  1360→                    <StatusPill status={r.status} />
+  1361→                  </div>
+  1362→
+  1363→                  <div className="overflow-hidden rounded-md border border-border bg-muted/40">
+  1364→                    <img
+  1365→                      src={r.receiptUrl}
+  1366→                      alt={`Receipt from ${r.retailerName ?? "unknown retailer"}`}
+  1367→                      className="mx-auto max-h-40 w-auto object-contain"
+  1368→                    />
+  1369→                  </div>
+  1370→
+  1371→                  <div className="grid grid-cols-2 gap-2 text-xs">
+  1372→                    <div>
+  1373→                      <p className="text-muted-foreground">Retailer (VLM)</p>
+  1374→                      <p className="font-medium text-foreground">
+  1375→                        {r.retailerName ?? "—"}
+  1376→                      </p>
+  1377→                    </div>
+  1378→                    <div>
+  1379→                      <p className="text-muted-foreground">Extracted total</p>
+  1380→                      <p className="font-semibold text-foreground">
+  1381→                        {KES(r.extractedTotal)}
+  1382→                      </p>
+  1383→                    </div>
+  1384→                    <div className="col-span-2">
+  1385→                      <p className="text-muted-foreground">Receipt date</p>
+  1386→                      <p className="font-medium text-foreground">
+  1387→                        {r.receiptDate
+  1388→                          ? new Date(r.receiptDate).toLocaleDateString("en-KE", {
+  1389→                              day: "2-digit",
+  1390→                              month: "short",
+  1391→                              year: "numeric",
+  1392→                            })
+  1393→                          : "—"}
+  1394→                      </p>
+  1395→                    </div>
+  1396→                    <div className="col-span-2">
+  1397→                      <p className="text-muted-foreground">Tokens</p>
+  1398→                      <p className="font-semibold text-brand">
+  1399→                        {r.tokensAwarded} tokens
+  1400→                      </p>
+  1401→                    </div>
+  1402→                  </div>
+  1403→
+  1404→                  {isPending && (
+  1405→                    <div className="flex gap-2 pt-1">
+  1406→                      <Button
+  1407→                        size="sm"
+  1408→                        className="flex-1 bg-brand text-white hover:bg-brand-dark"
+  1409→                        disabled={decidingId === r.id}
+  1410→                        onClick={() => onDecide(r.id, "APPROVED")}
+  1411→                      >
+  1412→                        {decidingId === r.id ? (
+  1413→                          <Loader2 className="animate-spin" size={14} />
+  1414→                        ) : (
+  1415→                          <CheckCircle2 size={14} />
+  1416→                        )}
+  1417→                        Approve (+10 tokens)
+  1418→                      </Button>
+  1419→                      <Button
+  1420→                        size="sm"
+  1421→                        variant="outline"
+  1422→                        className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+  1423→                        disabled={decidingId === r.id}
+  1424→                        onClick={() => onDecide(r.id, "REJECTED")}
+  1425→                      >
+  1426→                        <XCircle size={14} />
+  1427→                        Reject
+  1428→                      </Button>
+  1429→                    </div>
+  1430→                  )}
+  1431→                </CardContent>
+  1432→              </Card>
+  1433→            );
+  1434→          })}
+  1435→        </div>
+  1436→      </div>
+  1437→    </div>
+  1438→  );
+  1439→}
+  1440→
+  1441→// ---------- Main component ----------
+  1442→export function AdminPage() {
+  1443→  // `authed` is a boolean mirror of the server-side cookie session. The cookie
+  1444→  // itself is httpOnly and never readable by JS — this flag just controls UI.
+  1445→  const [authed, setAuthed] = React.useState(false);
+  1446→  const [adminUser, setAdminUser] = React.useState<{ username: string; role: string } | null>(null);
+  1447→  const [bootstrapping, setBootstrapping] = React.useState(true);
+  1448→  const [gateError, setGateError] = React.useState<string | null>(null);
+  1449→  const [gateSubmitting, setGateSubmitting] = React.useState(false);
+  1450→
+  1451→  const [dashboard, setDashboard] = React.useState<AdminDashboard | null>(null);
+  1452→  const [orders, setOrders] = React.useState<AdminOrder[]>([]);
+  1453→  const [dispatches, setDispatches] = React.useState<AdminDispatch[]>([]);
+  1454→  const [applications, setApplications] = React.useState<AdminVendorApp[]>([]);
+  1455→  const [boosts, setBoosts] = React.useState<AdminBoost[]>([]);
+  1456→  const [receipts, setReceipts] = React.useState<AdminReceipt[]>([]);
+  1457→
+  1458→  const [loadingDashboard, setLoadingDashboard] = React.useState(false);
+  1459→  const [loadingOrders, setLoadingOrders] = React.useState(false);
+  1460→  const [loadingDispatches, setLoadingDispatches] = React.useState(false);
+  1461→  const [loadingApplications, setLoadingApplications] = React.useState(false);
+  1462→  const [loadingBoosts, setLoadingBoosts] = React.useState(false);
+  1463→  const [loadingReceipts, setLoadingReceipts] = React.useState(false);
+  1464→
+  1465→  const [dashboardError, setDashboardError] = React.useState<string | null>(
+  1466→    null
+  1467→  );
+  1468→  const [ordersError, setOrdersError] = React.useState<string | null>(null);
+  1469→  const [dispatchesError, setDispatchesError] = React.useState<string | null>(
+  1470→    null
+  1471→  );
+  1472→  const [applicationsError, setApplicationsError] = React.useState<
+  1473→    string | null
+  1474→  >(null);
+  1475→  const [boostsError, setBoostsError] = React.useState<string | null>(null);
+  1476→  const [receiptsError, setReceiptsError] = React.useState<string | null>(null);
+  1477→
+  1478→  const [advancingId, setAdvancingId] = React.useState<string | null>(null);
+  1479→  const [decidingId, setDecidingId] = React.useState<string | null>(null);
+  1480→  const [refreshing, setRefreshing] = React.useState(false);
+  1481→
+  1482→  // ---- auth helpers ----
+  1483→  const clearAuth = React.useCallback(() => {
+  1484→    setAuthed(false);
+  1485→    setAdminUser(null);
+  1486→    setGateError("Your session has expired. Please sign in again.");
+  1487→  }, []);
+  1488→
+  1489→  // On mount, ask the server if there's already a live session (cookie OR
+  1490→  // token header). This is what makes the session survive a page refresh.
+  1491→  React.useEffect(() => {
+  1492→    let alive = true;
+  1493→    (async () => {
+  1494→      try {
+  1495→        const token = getToken();
+  1496→        const res = await fetch("/api/admin/session", {
+  1497→          credentials: "same-origin",
+  1498→          headers: token ? { "x-admin-token": token } : {},
+  1499→        });
+  1500→        if (res.ok) {
+  1501→          const data = await res.json();
+  1502→          if (alive && data.authed) {
+  1503→            setAuthed(true);
+  1504→            setAdminUser(data.admin);
+  1505→          }
+  1506→        }
+  1507→      } catch {
+  1508→        // ignore — treat as not authed
+  1509→      } finally {
+  1510→        if (alive) setBootstrapping(false);
+  1511→      }
+  1512→    })();
+  1513→    return () => {
+  1514→      alive = false;
+  1515→    };
+  1516→  }, []);
+  1517→
+  1518→  const handleLogin = React.useCallback(
+  1519→    async (username: string, password: string) => {
+  1520→      setGateSubmitting(true);
+  1521→      setGateError(null);
+  1522→      try {
+  1523→        const res = await fetch("/api/admin/login", {
+  1524→          method: "POST",
+  1525→          headers: { "Content-Type": "application/json" },
+  1526→          credentials: "same-origin",
+  1527→          body: JSON.stringify({ username, password }),
+  1528→        });
+  1529→        const data = await res.json().catch(() => ({}));
+  1530→        if (!res.ok) {
+  1531→          setGateError(data.error || "Invalid username or password.");
+  1532→          return;
+  1533→        }
+  1534→        // Persist the token so adminFetch can send it as a header. This works
+  1535→        // in third-party iframes (where the httpOnly cookie may be blocked)
+  1536→        // as well as in direct-nav/curl contexts (where the cookie works).
+  1537→        if (data.token) setToken(data.token);
+  1538→        setAdminUser(data.admin);
+  1539→        setAuthed(true);
+  1540→      } catch {
+  1541→        setGateError("Could not reach the server. Try again.");
+  1542→      } finally {
+  1543→        setGateSubmitting(false);
+  1544→      }
+  1545→    },
+  1546→    []
+  1547→  );
+  1548→
+  1549→  const handleLogout = React.useCallback(async () => {
+  1550→    try {
+  1551→      await fetch("/api/admin/logout", {
+  1552→        method: "POST",
+  1553→        credentials: "same-origin",
+  1554→        headers: getToken() ? { "x-admin-token": getToken()! } : {},
+  1555→      });
+  1556→    } catch {
+  1557→      // ignore — clear client state regardless
+  1558→    }
+  1559→    setToken(null);
+  1560→    setAuthed(false);
+  1561→    setAdminUser(null);
+  1562→    setGateError(null);
+  1563→  }, []);
+  1564→
+  1565→  // ---- loaders ----
+  1566→  const loadDashboard = React.useCallback(async () => {
+  1567→    if (!authed) return;
+  1568→    setLoadingDashboard(true);
+  1569→    setDashboardError(null);
+  1570→    try {
+  1571→      const data = await adminFetch<AdminDashboard>(
+  1572→        "/api/admin/dashboard",
+  1573→        undefined,
+  1574→        clearAuth
+  1575→      );
+  1576→      setDashboard(data);
+  1577→    } catch (err) {
+  1578→      setDashboardError(
+  1579→        err instanceof Error ? err.message : "Failed to load analytics."
+  1580→      );
+  1581→    } finally {
+  1582→      setLoadingDashboard(false);
+  1583→    }
+  1584→  }, [authed, clearAuth]);
+  1585→
+  1586→  const loadOrders = React.useCallback(async () => {
+  1587→    if (!authed) return;
+  1588→    setLoadingOrders(true);
+  1589→    setOrdersError(null);
+  1590→    try {
+  1591→      const data = await adminFetch<{ orders: AdminOrder[] }>(
+  1592→        "/api/admin/orders",
+  1593→        undefined,
+  1594→        clearAuth
+  1595→      );
+  1596→      setOrders(data.orders);
+  1597→    } catch (err) {
+  1598→      setOrdersError(
+  1599→        err instanceof Error ? err.message : "Failed to load orders."
+  1600→      );
+  1601→    } finally {
+  1602→      setLoadingOrders(false);
+  1603→    }
+  1604→  }, [authed, clearAuth]);
+  1605→
+  1606→  const loadDispatches = React.useCallback(async () => {
+  1607→    if (!authed) return;
+  1608→    setLoadingDispatches(true);
+  1609→    setDispatchesError(null);
+  1610→    try {
+  1611→      const data = await adminFetch<{ dispatches: AdminDispatch[] }>(
+  1612→        "/api/admin/dispatches",
+  1613→        undefined,
+  1614→        clearAuth
+  1615→      );
+  1616→      setDispatches(data.dispatches);
+  1617→    } catch (err) {
+  1618→      setDispatchesError(
+  1619→        err instanceof Error ? err.message : "Failed to load dispatches."
+  1620→      );
+  1621→    } finally {
+  1622→      setLoadingDispatches(false);
+  1623→    }
+  1624→  }, [authed, clearAuth]);
+  1625→
+  1626→  const loadApplications = React.useCallback(async () => {
+  1627→    if (!authed) return;
+  1628→    setLoadingApplications(true);
+  1629→    setApplicationsError(null);
+  1630→    try {
+  1631→      const data = await adminFetch<{ applications: AdminVendorApp[] }>(
+  1632→        "/api/admin/applications",
+  1633→        undefined,
+  1634→        clearAuth
+  1635→      );
+  1636→      setApplications(data.applications);
+  1637→    } catch (err) {
+  1638→      setApplicationsError(
+  1639→        err instanceof Error ? err.message : "Failed to load applications."
+  1640→      );
+  1641→    } finally {
+  1642→      setLoadingApplications(false);
+  1643→    }
+  1644→  }, [authed, clearAuth]);
+  1645→
+  1646→  const loadBoosts = React.useCallback(async () => {
+  1647→    if (!authed) return;
+  1648→    setLoadingBoosts(true);
+  1649→    setBoostsError(null);
+  1650→    try {
+  1651→      const data = await adminFetch<{ boosts: AdminBoost[] }>(
+  1652→        "/api/admin/boosts",
+  1653→        undefined,
+  1654→        clearAuth
+  1655→      );
+  1656→      setBoosts(data.boosts);
+  1657→    } catch (err) {
+  1658→      setBoostsError(
+  1659→        err instanceof Error ? err.message : "Failed to load boosts."
+  1660→      );
+  1661→    } finally {
+  1662→      setLoadingBoosts(false);
+  1663→    }
+  1664→  }, [authed, clearAuth]);
+  1665→
+  1666→  const loadReceipts = React.useCallback(async () => {
+  1667→    if (!authed) return;
+  1668→    setLoadingReceipts(true);
+  1669→    setReceiptsError(null);
+  1670→    try {
+  1671→      const data = await adminFetch<{ receipts: AdminReceipt[] }>(
+  1672→        "/api/admin/receipts",
+  1673→        undefined,
+  1674→        clearAuth
+  1675→      );
+  1676→      setReceipts(data.receipts);
+  1677→    } catch (err) {
+  1678→      setReceiptsError(
+  1679→        err instanceof Error ? err.message : "Failed to load receipts."
+  1680→      );
+  1681→    } finally {
+  1682→      setLoadingReceipts(false);
+  1683→    }
+  1684→  }, [authed, clearAuth]);
+  1685→
+  1686→  const loadAll = React.useCallback(async () => {
+  1687→    await Promise.all([
+  1688→      loadDashboard(),
+  1689→      loadOrders(),
+  1690→      loadDispatches(),
+  1691→      loadApplications(),
+  1692→      loadBoosts(),
+  1693→      loadReceipts(),
+  1694→    ]);
+  1695→  }, [
+  1696→    loadDashboard,
+  1697→    loadOrders,
+  1698→    loadDispatches,
+  1699→    loadApplications,
+  1700→    loadBoosts,
+  1701→    loadReceipts,
+  1702→  ]);
+  1703→
+  1704→  // Load everything once authed.
+  1705→  React.useEffect(() => {
+  1706→    if (!authed) return;
+  1707→    void loadAll();
+  1708→  }, [authed, loadAll]);
+  1709→
+  1710→  // Poll dispatches every 10s while authed.
+  1711→  React.useEffect(() => {
+  1712→    if (!authed) return;
+  1713→    const t = setInterval(() => {
+  1714→      void loadDispatches();
+  1715→    }, 10000);
+  1716→    return () => clearInterval(t);
+  1717→  }, [authed, loadDispatches]);
+  1718→
+  1719→  // ---- mutations ----
+  1720→  const advanceOrder = React.useCallback(
+  1721→    async (id: string, status: string) => {
+  1722→      if (!authed) return;
+  1723→      setAdvancingId(id);
+  1724→      try {
+  1725→        await adminFetch(
+  1726→          "/api/admin/orders",
+  1727→          {
+  1728→            method: "PATCH",
+  1729→            body: JSON.stringify({ id, status }),
+  1730→          },
+  1731→          clearAuth
+  1732→        );
+  1733→        setOrders((prev) =>
+  1734→          prev.map((o) => (o.id === id ? { ...o, status } : o))
+  1735→        );
+  1736→        await Promise.all([loadOrders(), loadDispatches(), loadDashboard()]);
+  1737→      } catch {
+  1738→        // best-effort: ignore
+  1739→      } finally {
+  1740→        setAdvancingId(null);
+  1741→      }
+  1742→    },
+  1743→    [authed, clearAuth, loadOrders, loadDispatches, loadDashboard]
+  1744→  );
+  1745→
+  1746→  const decideApplication = React.useCallback(
+  1747→    async (id: string, status: "APPROVED" | "REJECTED") => {
+  1748→      if (!authed) return;
+  1749→      setDecidingId(id);
+  1750→      try {
+  1751→        await adminFetch(
+  1752→          "/api/admin/applications",
+  1753→          {
+  1754→            method: "PATCH",
+  1755→            body: JSON.stringify({ id, status }),
+  1756→          },
+  1757→          clearAuth
+  1758→        );
+  1759→        setApplications((prev) =>
+  1760→          prev.map((a) => (a.id === id ? { ...a, status } : a))
+  1761→        );
+  1762→        await loadDashboard();
+  1763→      } finally {
+  1764→        setDecidingId(null);
+  1765→      }
+  1766→    },
+  1767→    [authed, clearAuth, loadDashboard]
+  1768→  );
+  1769→
+  1770→  const decideBoost = React.useCallback(
+  1771→    async (id: string, status: "ACTIVE" | "PAUSED" | "EXPIRED") => {
+  1772→      if (!authed) return;
+  1773→      setDecidingId(id);
+  1774→      try {
+  1775→        await adminFetch(
+  1776→          "/api/admin/boosts",
+  1777→          {
+  1778→            method: "PATCH",
+  1779→            body: JSON.stringify({ id, status }),
+  1780→          },
+  1781→          clearAuth
+  1782→        );
+  1783→        setBoosts((prev) =>
+  1784→          prev.map((b) => (b.id === id ? { ...b, status } : b))
+  1785→        );
+  1786→      } finally {
+  1787→        setDecidingId(null);
+  1788→      }
+  1789→    },
+  1790→    [authed, clearAuth]
+  1791→  );
+  1792→
+  1793→  const decideReceipt = React.useCallback(
+  1794→    async (id: string, status: "APPROVED" | "REJECTED") => {
+  1795→      if (!authed) return;
+  1796→      setDecidingId(id);
+  1797→      try {
+  1798→        const res = await adminFetch<{ tokensAwarded: number }>(
+  1799→          "/api/admin/receipts",
+  1800→          {
+  1801→            method: "PATCH",
+  1802→            body: JSON.stringify({ id, status }),
+  1803→          },
+  1804→          clearAuth
+  1805→        );
+  1806→        setReceipts((prev) =>
+  1807→          prev.map((r) =>
+  1808→            r.id === id
+  1809→              ? { ...r, status, tokensAwarded: res.tokensAwarded ?? 0 }
+  1810→              : r
+  1811→          )
+  1812→        );
+  1813→        await loadDashboard();
+  1814→      } finally {
+  1815→        setDecidingId(null);
+  1816→      }
+  1817→    },
+  1818→    [authed, clearAuth, loadDashboard]
+  1819→  );
+  1820→
+  1821→  const handleRefresh = React.useCallback(async () => {
+  1822→    setRefreshing(true);
+  1823→    try {
+  1824→      await loadAll();
+  1825→    } finally {
+  1826→      setRefreshing(false);
+  1827→    }
+  1828→  }, [loadAll]);
+  1829→
+  1830→  // ---- render ----
+  1831→  if (bootstrapping) {
+  1832→    return (
+  1833→      <div className="flex min-h-[40vh] items-center justify-center gap-2 text-muted-foreground">
+  1834→        <Loader2 className="animate-spin" size={18} />
+  1835→        Checking your session…
+  1836→      </div>
+  1837→    );
+  1838→  }
+  1839→
+  1840→  if (!authed) {
+  1841→    return (
+  1842→      <LoginGate
+  1843→        onLogin={handleLogin}
+  1844→        error={gateError}
+  1845→        submitting={gateSubmitting}
+  1846→      />
+  1847→    );
+  1848→  }
+  1849→
+  1850→  return (
+  1851→    <div className="flex flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6">
+  1852→      {/* Header */}
+  1853→      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  1854→        <div className="flex items-center gap-2.5">
+  1855→          <span className="flex size-10 items-center justify-center rounded-lg bg-brand text-white">
+  1856→            <LayoutDashboard size={20} />
+  1857→          </span>
+  1858→          <div>
+  1859→            <h1 className="text-lg font-bold text-foreground sm:text-xl">
+  1860→              Operator dashboard
+  1861→            </h1>
+  1862→            <p className="text-xs text-muted-foreground">
+  1863→              Signed in as{" "}
+  1864→              <span className="font-semibold text-foreground">
+  1865→                {adminUser?.username ?? "admin"}
+  1866→              </span>
+  1867→              {adminUser?.role ? ` · ${adminUser.role}` : ""}
+  1868→            </p>
+  1869→          </div>
+  1870→        </div>
+  1871→        <div className="flex items-center gap-2">
+  1872→          <Button
+  1873→            variant="outline"
+  1874→            size="sm"
+  1875→            onClick={handleRefresh}
+  1876→            disabled={refreshing}
+  1877→          >
+  1878→            {refreshing ? (
+  1879→              <Loader2 className="animate-spin" size={14} />
+  1880→            ) : (
+  1881→              <RefreshCw size={14} />
+  1882→            )}
+  1883→            Refresh
+  1884→          </Button>
+  1885→          <Button
+  1886→            variant="outline"
+  1887→            size="sm"
+  1888→            className="border-red-200 text-red-600 hover:bg-red-50"
+  1889→            onClick={handleLogout}
+  1890→          >
+  1891→            <LogOut size={14} />
+  1892→            Sign out
+  1893→          </Button>
+  1894→        </div>
+  1895→      </header>
+  1896→
+  1897→      {/* Tabs */}
+  1898→      <Tabs defaultValue="overview" className="w-full">
+  1899→        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
+  1900→          <TabsTrigger value="overview" className="gap-1.5">
+  1901→            <LayoutDashboard size={14} />
+  1902→            Overview
+  1903→          </TabsTrigger>
+  1904→          <TabsTrigger value="orders" className="gap-1.5">
+  1905→            <Package size={14} />
+  1906→            Orders
+  1907→          </TabsTrigger>
+  1908→          <TabsTrigger value="dispatches" className="gap-1.5">
+  1909→            <Truck size={14} />
+  1910→            Dispatches
+  1911→            {dispatches.length > 0 && (
+  1912→              <Badge className="ml-1 bg-brand text-white" variant="secondary">
+  1913→                {dispatches.length}
+  1914→              </Badge>
+  1915→            )}
+  1916→          </TabsTrigger>
+  1917→          <TabsTrigger value="applications" className="gap-1.5">
+  1918→            <Store size={14} />
+  1919→            Vendors
+  1920→          </TabsTrigger>
+  1921→          <TabsTrigger value="boosts" className="gap-1.5">
+  1922→            <Rocket size={14} />
+  1923→            Boosts
+  1924→          </TabsTrigger>
+  1925→          <TabsTrigger value="receipts" className="gap-1.5">
+  1926→            <Receipt size={14} />
+  1927→            Receipts
+  1928→          </TabsTrigger>
+  1929→        </TabsList>
+  1930→
+  1931→        <TabsContent value="overview" className="mt-4">
+  1932→          <OverviewTab
+  1933→            dashboard={dashboard}
+  1934→            loading={loadingDashboard}
+  1935→            error={dashboardError}
+  1936→          />
+  1937→        </TabsContent>
+  1938→
+  1939→        <TabsContent value="orders" className="mt-4">
+  1940→          <OrdersTab
+  1941→            orders={orders}
+  1942→            loading={loadingOrders}
+  1943→            error={ordersError}
+  1944→            onAdvance={advanceOrder}
+  1945→            advancingId={advancingId}
+  1946→          />
+  1947→        </TabsContent>
+  1948→
+  1949→        <TabsContent value="dispatches" className="mt-4">
+  1950→          <DispatchesTab
+  1951→            dispatches={dispatches}
+  1952→            loading={loadingDispatches}
+  1953→            error={dispatchesError}
+  1954→            onAdvance={advanceOrder}
+  1955→            advancingId={advancingId}
+  1956→          />
+  1957→        </TabsContent>
+  1958→
+  1959→        <TabsContent value="applications" className="mt-4">
+  1960→          <VendorApprovalsTab
+  1961→            applications={applications}
+  1962→            loading={loadingApplications}
+  1963→            error={applicationsError}
+  1964→            onDecide={decideApplication}
+  1965→            decidingId={decidingId}
+  1966→          />
+  1967→        </TabsContent>
+  1968→
+  1969→        <TabsContent value="boosts" className="mt-4">
+  1970→          <BoostsTab
+  1971→            boosts={boosts}
+  1972→            loading={loadingBoosts}
+  1973→            error={boostsError}
+  1974→            onDecide={decideBoost}
+  1975→            decidingId={decidingId}
+  1976→            totalRevenue={dashboard?.boostRevenue ?? 0}
+  1977→          />
+  1978→        </TabsContent>
+  1979→
+  1980→        <TabsContent value="receipts" className="mt-4">
+  1981→          <ReceiptsTab
+  1982→            receipts={receipts}
+  1983→            loading={loadingReceipts}
+  1984→            error={receiptsError}
+  1985→            onDecide={decideReceipt}
+  1986→            decidingId={decidingId}
+  1987→          />
+  1988→        </TabsContent>
+  1989→      </Tabs>
+  1990→    </div>
+  1991→  );
+  1992→}
+  1993→
+  1994→export default AdminPage;
+  1995→
