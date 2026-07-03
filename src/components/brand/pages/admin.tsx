@@ -24,6 +24,9 @@ import {
   ArrowUpFromLine,
   Wifi,
   WifiOff,
+  Bike,
+  Hash,
+  User,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -60,6 +63,7 @@ import type {
   AdminOrder,
   AdminDispatch,
   AdminVendorApp,
+  AdminRiderApp,
   AdminBoost,
   AdminReceipt,
   AdminPresence,
@@ -1148,6 +1152,146 @@ function VendorApprovalsTab({
   );
 }
 
+// ---------- Rider approvals tab ----------
+function RiderApprovalsTab({
+  applications,
+  loading,
+  error,
+  onDecide,
+  decidingId,
+}: {
+  applications: AdminRiderApp[];
+  loading: boolean;
+  error: string | null;
+  onDecide: (id: string, status: "APPROVED" | "REJECTED") => void;
+  decidingId: string | null;
+}) {
+  if (loading && applications.length === 0) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+        <Loader2 className="animate-spin" size={18} />
+        <span className="text-sm">Loading rider applications…</span>
+      </div>
+    );
+  }
+  if (error) return <SectionError message={error} />;
+  if (applications.length === 0) {
+    return (
+      <EmptyState
+        icon={<Bike size={18} />}
+        label="No rider applications yet."
+      />
+    );
+  }
+
+  const pending = applications.filter((a) => a.status === "PENDING");
+  const decided = applications.filter((a) => a.status !== "PENDING");
+  const ordered = [...pending, ...decided];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-sm font-semibold text-foreground">
+        Rider applications ({applications.length}) · {pending.length} pending
+      </h3>
+      <div className="max-h-[70vh] overflow-y-auto wb-scroll">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {ordered.map((a) => {
+            const isPending = a.status === "PENDING";
+            return (
+              <Card key={a.id}>
+                <CardContent className="flex flex-col gap-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      {a.selfieUrl ? (
+                        <img
+                          src={a.selfieUrl}
+                          alt={`${a.fullName} selfie`}
+                          className="size-12 rounded-full border border-border object-cover"
+                        />
+                      ) : (
+                        <div className="flex size-12 items-center justify-center rounded-full bg-brand-light text-brand">
+                          <User size={20} />
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {a.fullName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          <Phone size={11} className="inline" /> {a.phone}
+                        </p>
+                      </div>
+                    </div>
+                    <StatusPill status={a.status} />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <div className="flex items-center gap-1 font-medium text-muted-foreground">
+                        <Bike size={10} /> Bike plate
+                      </div>
+                      <div className="mt-0.5 font-bold text-foreground">{a.bikePlate}</div>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <div className="flex items-center gap-1 font-medium text-muted-foreground">
+                        <Hash size={10} /> Stage
+                      </div>
+                      <div className="mt-0.5 font-bold text-foreground">{a.stageNumber}</div>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <div className="flex items-center gap-1 font-medium text-muted-foreground">
+                        <MapPin size={10} /> Area
+                      </div>
+                      <div className="mt-0.5 font-bold text-foreground">{a.locationArea}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>Applied {new Date(a.createdAt).toLocaleDateString()}</span>
+                    {!a.selfieUrl && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">
+                        No selfie provided
+                      </span>
+                    )}
+                  </div>
+
+                  {isPending && (
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-brand text-white hover:bg-brand-dark"
+                        disabled={decidingId === a.id}
+                        onClick={() => onDecide(a.id, "APPROVED")}
+                      >
+                        {decidingId === a.id ? (
+                          <Loader2 className="animate-spin" size={14} />
+                        ) : (
+                          <CheckCircle2 size={14} />
+                        )}
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                        disabled={decidingId === a.id}
+                        onClick={() => onDecide(a.id, "REJECTED")}
+                      >
+                        <XCircle size={14} />
+                        Reject
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Boosts tab ----------
 function BoostsTab({
   boosts,
@@ -1648,6 +1792,7 @@ export function AdminPage() {
   const [orders, setOrders] = React.useState<AdminOrder[]>([]);
   const [dispatches, setDispatches] = React.useState<AdminDispatch[]>([]);
   const [applications, setApplications] = React.useState<AdminVendorApp[]>([]);
+  const [riderApps, setRiderApps] = React.useState<AdminRiderApp[]>([]);
   const [boosts, setBoosts] = React.useState<AdminBoost[]>([]);
   const [receipts, setReceipts] = React.useState<AdminReceipt[]>([]);
 
@@ -1655,6 +1800,7 @@ export function AdminPage() {
   const [loadingOrders, setLoadingOrders] = React.useState(false);
   const [loadingDispatches, setLoadingDispatches] = React.useState(false);
   const [loadingApplications, setLoadingApplications] = React.useState(false);
+  const [loadingRiderApps, setLoadingRiderApps] = React.useState(false);
   const [loadingBoosts, setLoadingBoosts] = React.useState(false);
   const [loadingReceipts, setLoadingReceipts] = React.useState(false);
 
@@ -1668,6 +1814,7 @@ export function AdminPage() {
   const [applicationsError, setApplicationsError] = React.useState<
     string | null
   >(null);
+  const [riderAppsError, setRiderAppsError] = React.useState<string | null>(null);
   const [boostsError, setBoostsError] = React.useState<string | null>(null);
   const [receiptsError, setReceiptsError] = React.useState<string | null>(null);
 
@@ -1822,20 +1969,27 @@ export function AdminPage() {
   const loadApplications = React.useCallback(async () => {
     if (!authed) return;
     setLoadingApplications(true);
+    setLoadingRiderApps(true);
     setApplicationsError(null);
+    setRiderAppsError(null);
     try {
-      const data = await adminFetch<{ applications: AdminVendorApp[] }>(
+      const data = await adminFetch<{ applications: AdminVendorApp[]; riderApplications: AdminRiderApp[] }>(
         "/api/admin/applications",
         undefined,
         clearAuth
       );
       setApplications(data.applications);
+      setRiderApps(data.riderApplications ?? []);
     } catch (err) {
       setApplicationsError(
         err instanceof Error ? err.message : "Failed to load applications."
       );
+      setRiderAppsError(
+        err instanceof Error ? err.message : "Failed to load rider applications."
+      );
     } finally {
       setLoadingApplications(false);
+      setLoadingRiderApps(false);
     }
   }, [authed, clearAuth]);
 
@@ -1940,7 +2094,7 @@ export function AdminPage() {
   );
 
   const decideApplication = React.useCallback(
-    async (id: string, status: "APPROVED" | "REJECTED") => {
+    async (id: string, status: "APPROVED" | "REJECTED", kind?: "vendor" | "rider") => {
       if (!authed) return;
       setDecidingId(id);
       try {
@@ -1948,13 +2102,19 @@ export function AdminPage() {
           "/api/admin/applications",
           {
             method: "PATCH",
-            body: JSON.stringify({ id, status }),
+            body: JSON.stringify({ id, status, kind }),
           },
           clearAuth
         );
-        setApplications((prev) =>
-          prev.map((a) => (a.id === id ? { ...a, status } : a))
-        );
+        if (kind === "rider") {
+          setRiderApps((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, status } : a))
+          );
+        } else {
+          setApplications((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, status } : a))
+          );
+        }
         await loadDashboard();
       } finally {
         setDecidingId(null);
@@ -2114,6 +2274,15 @@ export function AdminPage() {
             <Store size={14} />
             Vendors
           </TabsTrigger>
+          <TabsTrigger value="rider-applications" className="gap-1.5">
+            <Bike size={14} />
+            Riders
+            {riderApps.filter((a) => a.status === "PENDING").length > 0 && (
+              <Badge className="ml-1 bg-brand text-white" variant="secondary">
+                {riderApps.filter((a) => a.status === "PENDING").length}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="boosts" className="gap-1.5">
             <Rocket size={14} />
             Boosts
@@ -2161,7 +2330,17 @@ export function AdminPage() {
             applications={applications}
             loading={loadingApplications}
             error={applicationsError}
-            onDecide={decideApplication}
+            onDecide={(id, status) => decideApplication(id, status, "vendor")}
+            decidingId={decidingId}
+          />
+        </TabsContent>
+
+        <TabsContent value="rider-applications" className="mt-4">
+          <RiderApprovalsTab
+            applications={riderApps}
+            loading={loadingRiderApps}
+            error={riderAppsError}
+            onDecide={(id, status) => decideApplication(id, status, "rider")}
             decidingId={decidingId}
           />
         </TabsContent>

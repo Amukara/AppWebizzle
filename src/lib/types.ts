@@ -380,6 +380,18 @@ export type AdminVendorApp = {
   createdAt: string;
 };
 
+export type AdminRiderApp = {
+  id: string;
+  fullName: string;
+  phone: string;
+  bikePlate: string;
+  stageNumber: string;
+  locationArea: string;
+  selfieUrl: string | null;
+  status: string;
+  createdAt: string;
+};
+
 export type AdminBoost = {
   id: string;
   shopName: string;
