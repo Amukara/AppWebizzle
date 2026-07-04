@@ -63,7 +63,9 @@ model Order {
   deliveryFee  Int
   total        Int
   status       String   @default("PLACED") // PLACED, CONFIRMED, DISPATCHED, DELIVERED
+  paymentStatus String @default("PENDING") // PENDING, PAID, FAILED, CANCELLED
   mpesaCode    String?
+  mpesaCheckoutId String? // Daraja CheckoutRequestID for STK Push tracking
   // Live tracking
   riderName    String?
   riderPlate   String?
@@ -85,6 +87,8 @@ model Order {
 
   @@index([createdAt])
   @@index([status])
+  @@index([paymentStatus])
+  @@index([mpesaCheckoutId])
 }
 
 model VendorApplication {

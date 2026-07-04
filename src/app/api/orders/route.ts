@@ -3,6 +3,11 @@ import { db } from "@/lib/db";
 import { pickRider } from "@/lib/pricing";
 import { computeFees, REFERRAL_REWARD_KES } from "@/lib/fees";
 import { getAdminSession, unauthorized } from "@/lib/admin";
+import {
+  isDarajaConfigured,
+  initiateStkPush,
+  normalizePhone,
+} from "@/lib/mpesa";
 
 // GET /api/orders — list orders.
 //   • Admin (cookie or x-admin-token): returns all orders with full PII.
@@ -41,6 +46,7 @@ export async function GET(req: Request) {
       deliveryFee: o.deliveryFee,
       total: o.total,
       status: o.status,
+      paymentStatus: o.paymentStatus,
       mpesaCode: o.mpesaCode,
       createdAt: o.createdAt.toISOString(),
       rider: o.riderName
@@ -82,6 +88,7 @@ export async function GET(req: Request) {
     deliveryFee: o.deliveryFee,
     total: o.total,
     status: o.status,
+    paymentStatus: o.paymentStatus,
     mpesaCode: o.mpesaCode,
     createdAt: o.createdAt.toISOString(),
     rider: o.riderName
@@ -98,17 +105,24 @@ export async function GET(req: Request) {
   return NextResponse.json({ orders: data });
 }
 
+// POST /api/orders — create a new order.
+//
+// SECURITY: prices are recomputed server-side from the vendor's actual
+// VendorProduct catalogue.  Client-supplied subtotal/deliveryFee/total
+// and per-item unitPrice are IGNORED.
+//
+// Payment flow:
+//   1. Server creates order with paymentStatus = "PENDING".
+//   2. If Daraja is configured → initiates STK Push, stores checkoutRequestId.
+//   3. If Daraja is NOT configured (dev) → auto-confirms after 2 s.
+//   4. Frontend polls GET /api/mpesa/status until PAID or FAILED.
 export async function POST(req: Request) {
   let body: {
     vendorId: string;
     customerName: string;
     phone: string;
     location: string;
-    items: { productId: string; name: string; unit: string; emoji: string; qty: number; unitPrice: number }[];
-    subtotal: number;
-    deliveryFee: number;
-    total: number;
-    mpesaCode?: string;
+    items: { productId: string; name: string; unit: string; emoji: string; qty: number }[];
     referralCode?: string;
     lat?: number | null;
     lng?: number | null;
@@ -123,19 +137,81 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  // ---- 1. Look up vendor ----
   const vendor = await db.vendor.findUnique({ where: { id: body.vendorId } });
   if (!vendor) {
     return NextResponse.json({ error: "Vendor not found" }, { status: 404 });
   }
 
-  // Compute savings vs. current market-average prices for the ordered items.
+  // ---- 2. Server-side price recomputation ----
+  // Fetch the vendor's actual listings for every requested product.
   const productIds = body.items.map((it) => it.productId);
-  const listings = await db.vendorProduct.findMany({
+  const vendorListings = await db.vendorProduct.findMany({
+    where: {
+      vendorId: body.vendorId,
+      productId: { in: productIds },
+    },
+    include: { product: true },
+  });
+
+  // Build a lookup: productId → { price, name, unit, emoji, inStock }
+  const listingMap = new Map<string, (typeof vendorListings)[number]>();
+  for (const l of vendorListings) {
+    listingMap.set(l.productId, l);
+  }
+
+  // Validate every item: must exist, be in stock, and have a valid qty.
+  const serverItems: {
+    productId: string;
+    name: string;
+    unit: string;
+    emoji: string;
+    qty: number;
+    unitPrice: number; // server-authoritative price
+  }[] = [];
+
+  for (const it of body.items) {
+    if (typeof it.qty !== "number" || it.qty < 1) {
+      return NextResponse.json(
+        { error: `Invalid quantity for ${it.productId}` },
+        { status: 400 }
+      );
+    }
+    const listing = listingMap.get(it.productId);
+    if (!listing) {
+      return NextResponse.json(
+        { error: `Product ${it.productId} is not listed by this vendor` },
+        { status: 409 }
+      );
+    }
+    if (!listing.inStock) {
+      return NextResponse.json(
+        { error: `${listing.product.name} is out of stock at ${vendor.name}` },
+        { status: 409 }
+      );
+    }
+    serverItems.push({
+      productId: it.productId,
+      name: listing.product.name,
+      unit: listing.product.unit,
+      emoji: listing.product.emoji,
+      qty: it.qty,
+      unitPrice: listing.price, // SERVER price, NOT client-supplied
+    });
+  }
+
+  // Compute totals server-side
+  const subtotal = serverItems.reduce((s, it) => s + it.unitPrice * it.qty, 0);
+  const deliveryFee = vendor.deliveryFee; // from vendor record, not client
+  const total = subtotal + deliveryFee;
+
+  // ---- 3. Compute savings vs. market-average prices ----
+  const allListings = await db.vendorProduct.findMany({
     where: { productId: { in: productIds }, inStock: true },
   });
   const sumsByProduct = new Map<string, number>();
   const countByProduct = new Map<string, number>();
-  for (const l of listings) {
+  for (const l of allListings) {
     sumsByProduct.set(l.productId, (sumsByProduct.get(l.productId) ?? 0) + l.price);
     countByProduct.set(l.productId, (countByProduct.get(l.productId) ?? 0) + 1);
   }
@@ -146,25 +222,15 @@ export async function POST(req: Request) {
     avgByProduct.set(pid, cnt > 0 ? Math.round(sum / cnt) : 0);
   }
   let saved = 0;
-  for (const it of body.items) {
+  for (const it of serverItems) {
     const avg = avgByProduct.get(it.productId) ?? it.unitPrice;
     saved += Math.max(0, (avg - it.unitPrice) * it.qty);
   }
 
-  // generate a mock M-Pesa confirmation code if not supplied
-  const mpesaCode =
-    body.mpesaCode ||
-    "QFG" +
-      Math.random().toString(36).slice(2, 7).toUpperCase() +
-      Math.floor(Math.random() * 90 + 10);
+  // ---- 4. Monetisation fees ----
+  const fees = computeFees(subtotal, deliveryFee);
 
-  // Assign a deterministic rider based on the order timestamp for stable tracking.
-  const rider = pickRider(`${body.vendorId}-${Date.now()}`);
-
-  // Monetisation: 3% platform levy on totals > 300, 10% driver levy.
-  const fees = computeFees(body.subtotal, body.deliveryFee);
-
-  // Validate + record referral code usage (best-effort; never blocks checkout).
+  // ---- 5. Referral code (best-effort, never blocks) ----
   let referralCode: string | null = null;
   if (body.referralCode && typeof body.referralCode === "string") {
     const ref = await db.referral.findUnique({
@@ -182,18 +248,22 @@ export async function POST(req: Request) {
     }
   }
 
+  // ---- 6. Assign rider ----
+  const rider = pickRider(`${body.vendorId}-${Date.now()}`);
+
+  // ---- 7. Create the order (PENDING payment) ----
   const order = await db.order.create({
     data: {
       customerName: body.customerName.trim(),
       phone: body.phone.trim(),
       location: body.location.trim(),
       vendorId: body.vendorId,
-      itemsJson: JSON.stringify(body.items),
-      subtotal: body.subtotal,
-      deliveryFee: body.deliveryFee,
-      total: body.total,
-      status: "CONFIRMED",
-      mpesaCode,
+      itemsJson: JSON.stringify(serverItems),
+      subtotal,
+      deliveryFee,
+      total,
+      status: "PLACED",
+      paymentStatus: "PENDING",
       riderName: rider.name,
       riderPlate: rider.plate,
       riderPhone: rider.phone,
@@ -210,38 +280,100 @@ export async function POST(req: Request) {
     include: { vendor: true },
   });
 
-  // Fire a vendor notification (best-effort, never blocks the response).
-  void notifyVendorOfOrder({
-    id: order.id,
-    vendorId: order.vendor.id,
-    vendorName: order.vendor.name,
-    customerName: order.customerName,
-    total: order.total,
-    itemCount: body.items.length,
-  });
+  // ---- 8. Initiate M-Pesa payment ----
+  let checkoutRequestId: string | null = null;
 
-  // Auto-push new order to Airtable (fire-and-forget, never blocks the response).
-  const { pushSingleOrderToAirtable } = await import("@/lib/airtable");
-  void pushSingleOrderToAirtable({
-    id: order.id,
-    customerName: order.customerName,
-    phone: order.phone,
-    location: order.location,
-    vendor: { name: order.vendor.name, emoji: order.vendor.emoji, type: order.vendor.type },
-    items: body.items,
-    subtotal: order.subtotal,
-    deliveryFee: order.deliveryFee,
-    total: order.total,
-    status: order.status,
-    mpesaCode: order.mpesaCode,
-    riderName: order.riderName,
-    riderPlate: order.riderPlate,
-    saved: order.saved,
-    platformFee: order.platformFee,
-    driverLevy: order.driverLevy,
-    createdAt: order.createdAt.toISOString(),
-  });
+  if (isDarajaConfigured()) {
+    // Real Daraja STK Push
+    const phone254 = normalizePhone(body.phone);
+    const ref = `WBZ-${order.id.slice(-8).toUpperCase()}`;
+    const stkResult = await initiateStkPush(
+      phone254,
+      total,
+      ref,
+      `WeBizzle order`
+    );
 
+    if (stkResult.ok) {
+      checkoutRequestId = stkResult.checkoutRequestId;
+      await db.order.update({
+        where: { id: order.id },
+        data: { mpesaCheckoutId: checkoutRequestId },
+      });
+    } else {
+      // STK Push failed — mark payment as failed
+      await db.order.update({
+        where: { id: order.id },
+        data: { paymentStatus: "FAILED" },
+      });
+      return NextResponse.json(
+        {
+          error: `M-Pesa initiation failed: ${stkResult.errorMessage}`,
+          code: stkResult.errorCode,
+        },
+        { status: 502 }
+      );
+    }
+  } else {
+    // Dev fallback: simulate payment confirmation after a short delay
+    // so the frontend polling flow works end-to-end without Safaricom.
+    console.log(
+      `[orders] Daraja not configured — simulating payment for order ${order.id} in 2s`
+    );
+    setTimeout(async () => {
+      try {
+        const mpesaCode =
+          "QFG" +
+          Math.random().toString(36).slice(2, 7).toUpperCase() +
+          Math.floor(Math.random() * 90 + 10);
+
+        await db.order.update({
+          where: { id: order.id },
+          data: {
+            paymentStatus: "PAID",
+            status: "CONFIRMED",
+            mpesaCode,
+          },
+        });
+
+        // Notify vendor after simulated payment
+        void notifyVendorOfOrder({
+          id: order.id,
+          vendorId: order.vendorId,
+          vendorName: vendor.name,
+          customerName: order.customerName,
+          total: order.total,
+          itemCount: serverItems.length,
+        });
+
+        // Push to Airtable after payment confirmed
+        const { pushSingleOrderToAirtable } = await import("@/lib/airtable");
+        void pushSingleOrderToAirtable({
+          id: order.id,
+          customerName: order.customerName,
+          phone: order.phone,
+          location: order.location,
+          vendor: { name: vendor.name, emoji: vendor.emoji, type: vendor.type },
+          items: serverItems,
+          subtotal: order.subtotal,
+          deliveryFee: order.deliveryFee,
+          total: order.total,
+          status: "CONFIRMED",
+          mpesaCode,
+          riderName: rider.name,
+          riderPlate: rider.plate,
+          saved: order.saved,
+          platformFee: order.platformFee,
+          driverLevy: order.driverLevy,
+          createdAt: order.createdAt.toISOString(),
+        });
+      } catch (err) {
+        console.error(`[orders] Simulated payment failed for ${order.id}:`, err);
+      }
+    }, 2000);
+  }
+
+  // ---- 9. Return order + payment tracking info ----
   return NextResponse.json({
     order: {
       id: order.id,
@@ -249,14 +381,16 @@ export async function POST(req: Request) {
       phone: order.phone,
       location: order.location,
       vendor: { id: order.vendor.id, name: order.vendor.name, emoji: order.vendor.emoji, type: order.vendor.type },
-      items: JSON.parse(order.itemsJson),
-      subtotal: order.subtotal,
-      deliveryFee: order.deliveryFee,
-      total: order.total,
+      items: serverItems,
+      subtotal,
+      deliveryFee,
+      total,
       status: order.status,
+      paymentStatus: order.paymentStatus,
       mpesaCode: order.mpesaCode,
+      checkoutRequestId,
       createdAt: order.createdAt.toISOString(),
-      rider: { name: order.riderName!, plate: order.riderPlate!, phone: order.riderPhone!, rating: order.riderRating },
+      rider: { name: rider.name, plate: rider.plate, phone: rider.phone, rating: rider.rating },
       saved: order.saved,
       platformFee: order.platformFee,
       driverLevy: order.driverLevy,

@@ -1,24 +1,31 @@
 ---
-Task ID: 2
+Task ID: 1
 Agent: main
-Task: Implement OTP phone verification for vendor & rider portal login
+Task: Fix order pricing — server-side recomputation + Daraja M-Pesa STK Push integration
 
 Work Log:
-- Added OtpCode model to Prisma schema (phone, code, purpose, verified, expiresAt)
-- Created src/lib/sms.ts — Africa's Talking integration with dev-mode fallback (logs code to console, returns in API response)
-- Created src/lib/portal-auth.ts — HMAC-signed portal session tokens (mirrors admin auth pattern)
-- Created /api/otp/send — generates 6-digit code, rate-limits (3/5min), sends SMS, returns devCode in dev mode
-- Created /api/otp/verify — validates code, marks verified, issues 8hr session token
-- Created src/components/brand/ui/otp-login-gate.tsx — shared 2-step OTP login component with InputOTP
-- Replaced vendor-portal.tsx old LoginGate (vendor ID input) with OtpLoginGate (phone + OTP)
-- Replaced rider-portal.tsx old login form (phone input, no auth) with OtpLoginGate (phone + OTP)
-- Updated /api/portal/vendor to support phone-based lookup (for OTP-authenticated access)
-- Updated /api/portal/rider GET to pre-fill name/plate from seeded rider pool on creation
-- Modified VendorSignupPage and RiderSignupPage to trigger OTP after registration and show "Continue to portal" button
-- Updated page.tsx to pass onNavigate to signup pages
+- Read and analyzed current POST /api/orders flow (client-supplied prices, mock M-Pesa codes)
+- Read Prisma schema, compare API, checkout frontend, page.tsx order handler
+- Added `paymentStatus` and `mpesaCheckoutId` columns to Order model, pushed via `prisma db push`
+- Created `src/lib/mpesa.ts`: Daraja STK Push client with OAuth token caching, env var validation (crash in production if missing), `normalizePhone()`, `isDarajaConfigured()`
+- Created `POST /api/mpesa/callback`: Safaricom payment callback endpoint — updates order paymentStatus to PAID/FAILED
+- Created `GET /api/mpesa/status`: Frontend polling endpoint for payment status
+- Rewrote `POST /api/orders`:
+  - Looks up VendorProduct records for (vendorId, productId) pairs
+  - Ignores client-supplied subtotal/deliveryFee/total/unitPrice
+  - Validates all items exist, are in stock, qty >= 1
+  - Recomputes subtotal from server prices, deliveryFee from vendor record
+  - Creates order with paymentStatus=PENDING, status=PLACED
+  - If Daraja configured → initiates STK Push, stores checkoutRequestId
+  - If Daraja not configured → 2-second setTimeout simulates payment confirmation
+- Updated `page.tsx` handlePlaceOrder: two-phase flow (create order → poll /api/mpesa/status)
+- Updated checkout.tsx: payment step states (initiating/polling/done), better error messages
+- Added `paymentStatus` field to Order type in types.ts
+- Added Daraja env vars to .env with comments (empty for dev, required in production)
 
 Stage Summary:
-- Full OTP flow tested E2E: send OTP → verify → portal lookup works
-- Rider portal correctly pre-fills name/plate from seeded data
-- Dev mode shows OTP code in UI for testing without real SMS
-- For production: set AFRICASTALKING_API_KEY and AFRICASTALKING_USERNAME in .env.local
+- Server-side price recomputation is working — verified with curl tests showing DB prices used
+- Validation rejects non-existent products (409) and missing vendors (404)
+- Daraja integration is built and will activate when MPESA_CONSUMER_KEY etc. are set
+- Dev mode auto-simulates payment after 2s for testing without Safaricom credentials
+- Files changed: schema.prisma, orders/route.ts, mpesa.ts (new), callback/route.ts (new), status/route.ts (new), page.tsx, checkout.tsx, types.ts, .env

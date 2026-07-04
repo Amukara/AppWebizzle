@@ -50,6 +50,7 @@ export function CheckoutPage({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentStep, setPaymentStep] = useState<"idle" | "initiating" | "polling" | "done">("idle");
 
   // Location services for checkout
   const geo = useGeolocation();
@@ -104,6 +105,7 @@ export function CheckoutPage({
   const handleSubmit = async () => {
     setError(null);
     setLoading(true);
+    setPaymentStep("initiating");
     try {
       const order = await onPlaceOrder({
         customerName: name,
@@ -114,6 +116,7 @@ export function CheckoutPage({
       });
       if (!order) {
         setError("Payment could not be confirmed. Please try again.");
+        setPaymentStep("idle");
         return;
       }
       // Remember this customer for next time (name, phone, location, pin).
@@ -124,9 +127,12 @@ export function CheckoutPage({
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
       });
+      setPaymentStep("done");
       onNavigate("confirmation");
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      setError(msg);
+      setPaymentStep("idle");
     } finally {
       setLoading(false);
     }
@@ -250,8 +256,10 @@ export function CheckoutPage({
               >
                 {loading ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> Waiting for
-                    M-Pesa…
+                    <Loader2 size={18} className="animate-spin" />
+                    {paymentStep === "initiating"
+                      ? "Sending M-Pesa prompt…"
+                      : "Waiting for M-Pesa…"}
                   </>
                 ) : (
                   <>

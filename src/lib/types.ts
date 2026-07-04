@@ -141,6 +141,7 @@ export type Order = {
   deliveryFee: number;
   total: number;
   status: string;
+  paymentStatus?: string; // PENDING, PAID, FAILED, CANCELLED
   mpesaCode: string | null;
   createdAt: string;
   // Live tracking

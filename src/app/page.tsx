@@ -167,7 +167,7 @@ export default function App() {
     [vendors]
   );
 
-  // ---- Place order ----
+  // ---- Place order (two-phase: create → poll payment) ----
   const handlePlaceOrder = useCallback(
     async (data: {
       customerName: string;
@@ -178,6 +178,7 @@ export default function App() {
     }): Promise<Order | null> => {
       if (!cart) return null;
       try {
+        // Phase 1: create the order (prices recomputed server-side)
         const res = await fetch("/api/orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -186,22 +187,89 @@ export default function App() {
             customerName: data.customerName,
             phone: data.phone,
             location: data.location,
-            items: cart.items,
-            subtotal: cart.subtotal,
-            deliveryFee: cart.deliveryFee,
-            total: cart.total,
+            items: cart.items.map(({ productId, name, unit, emoji, qty }) => ({
+              productId,
+              name,
+              unit,
+              emoji,
+              qty,
+            })),
             lat: data.lat ?? null,
             lng: data.lng ?? null,
           }),
         });
+
+        // Handle server-side validation errors (price mismatch, out of stock, etc.)
+        if (res.status === 409) {
+          const err = await res.json() as { error: string };
+          throw new Error(err.error);
+        }
         if (!res.ok) return null;
-        const json = await res.json();
-        setLastOrder(json.order);
-        // clear cart after successful order
+
+        const json = await res.json() as {
+          order: Order & { checkoutRequestId: string | null };
+        };
+        const { order, checkoutRequestId } = json;
+
+        // Phase 2: if order is already paid (dev auto-confirm), done
+        if (order.paymentStatus === "PAID") {
+          setLastOrder(order);
+          setCart(null);
+          setSelection({});
+          return order;
+        }
+
+        // Phase 2b: poll GET /api/mpesa/status until PAID / FAILED / timeout
+        if (checkoutRequestId) {
+          const maxPolls = 30; // 30 × 2s = 60s max wait
+          for (let i = 0; i < maxPolls; i++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            try {
+              const stRes = await fetch(
+                `/api/mpesa/status?checkoutRequestId=${encodeURIComponent(checkoutRequestId)}`
+              );
+              if (!stRes.ok) continue;
+              const st = await stRes.json() as {
+                orderId: string;
+                paymentStatus: string;
+                mpesaCode: string | null;
+                orderStatus: string;
+                total: number;
+              };
+
+              if (st.paymentStatus === "PAID") {
+                const paidOrder: Order = {
+                  ...order,
+                  paymentStatus: st.paymentStatus,
+                  mpesaCode: st.mpesaCode,
+                  status: st.orderStatus,
+                };
+                setLastOrder(paidOrder);
+                setCart(null);
+                setSelection({});
+                return paidOrder;
+              }
+              if (st.paymentStatus === "FAILED" || st.paymentStatus === "CANCELLED") {
+                throw new Error("Payment was declined or cancelled. Please try again.");
+              }
+            } catch (pollErr) {
+              // If it's our explicit error, re-throw
+              if (pollErr instanceof Error && pollErr.message.includes("declined")) {
+                throw pollErr;
+              }
+              // Otherwise continue polling (network blip)
+            }
+          }
+          throw new Error("Payment timed out. Check your M-Pesa and try again.");
+        }
+
+        // No checkoutRequestId (unexpected) — return as-is
+        setLastOrder(order);
         setCart(null);
         setSelection({});
-        return json.order as Order;
-      } catch {
+        return order;
+      } catch (err) {
+        if (err instanceof Error) throw err;
         return null;
       }
     },
