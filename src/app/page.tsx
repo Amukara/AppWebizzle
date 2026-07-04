@@ -38,6 +38,7 @@ import type {
   Product,
   Vendor,
 } from "@/lib/types";
+import { getCustomerProfile } from "@/lib/customer";
 
 export default function App() {
   const [page, setPage] = useState<PageId>("home");
@@ -72,7 +73,11 @@ export default function App() {
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
     try {
-      const res = await fetch("/api/orders").then((r) => r.json());
+      // Pass the customer's saved phone so the API scopes results to their orders only.
+      const profile = getCustomerProfile();
+      const phone = profile.phone?.trim().replace(/\s/g, "") || "";
+      const qs = phone ? `?phone=${encodeURIComponent(phone)}` : "";
+      const res = await fetch(`/api/orders${qs}`).then((r) => r.json());
       setOrders(res.orders ?? []);
     } catch {
       setOrders([]);

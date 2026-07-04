@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { vendorCoords, riderPosition, distanceKm } from "@/lib/maps";
+import { getAdminSession } from "@/lib/admin";
 import type { OrderTracking, TrackingStep } from "@/lib/types";
 
 // GET /api/orders/[id] — live tracking detail for a single order.
 // Derives a step timeline from the order's createdAt + current status, with
 // a rider card, remaining ETA, and overall journey progress.
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -18,6 +19,8 @@ export async function GET(
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
+
+  const isAdmin = !!getAdminSession(req);
 
   const placedAt = order.createdAt.getTime();
   // Realistic phase durations (ms): confirm ~1m, dispatch ~4m, deliver ~25m total.
@@ -71,7 +74,17 @@ export async function GET(
   );
 
   const rider = order.riderName
-    ? { name: order.riderName, plate: order.riderPlate!, phone: order.riderPhone!, rating: order.riderRating }
+    ? {
+        name: order.riderName,
+        plate: order.riderPlate!,
+        // Only admins see the full rider phone; customers get a masked version
+        phone: isAdmin
+          ? order.riderPhone!
+          : order.riderPhone
+            ? order.riderPhone.slice(0, -4) + "****"
+            : null,
+        rating: order.riderRating,
+      }
     : null;
 
   const payload: OrderTracking = {

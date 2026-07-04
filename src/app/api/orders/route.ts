@@ -2,10 +2,69 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { pickRider } from "@/lib/pricing";
 import { computeFees, REFERRAL_REWARD_KES } from "@/lib/fees";
+import { getAdminSession, unauthorized } from "@/lib/admin";
 
-// GET /api/orders — list all orders (newest first)
-// POST /api/orders — place a new order (assigns a rider + computes savings)
-export async function GET() {
+// GET /api/orders — list orders.
+//   • Admin (cookie or x-admin-token): returns all orders with full PII.
+//   • Customer (?phone=07XXXXXXXX): returns only their own orders with
+//     rider phone masked.
+//   • No auth + no phone: 401.
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const phoneParam = url.searchParams.get("phone")?.trim();
+
+  const adminSession = getAdminSession(req);
+
+  // --- Customer path: filter by phone, mask rider PII ---
+  if (!adminSession && phoneParam) {
+    // Normalize: strip spaces, prepend 0 if missing
+    const normalized = phoneParam.replace(/\s/g, "");
+    if (!normalized) {
+      return NextResponse.json({ error: "Phone parameter is required" }, { status: 400 });
+    }
+
+    const orders = await db.order.findMany({
+      where: { phone: { endsWith: normalized.replace(/^0/, "") } },
+      include: { vendor: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const data = orders.map((o) => ({
+      id: o.id,
+      customerName: o.customerName,
+      phone: o.phone,
+      location: o.location,
+      vendor: { id: o.vendor.id, name: o.vendor.name, emoji: o.vendor.emoji, type: o.vendor.type },
+      items: JSON.parse(o.itemsJson),
+      subtotal: o.subtotal,
+      deliveryFee: o.deliveryFee,
+      total: o.total,
+      status: o.status,
+      mpesaCode: o.mpesaCode,
+      createdAt: o.createdAt.toISOString(),
+      rider: o.riderName
+        ? {
+            name: o.riderName,
+            plate: o.riderPlate!,
+            // Mask rider phone: show only last 4 digits
+            phone: o.riderPhone
+              ? o.riderPhone.slice(0, -4) + "****"
+              : null,
+            rating: o.riderRating,
+          }
+        : null,
+      saved: o.saved,
+    }));
+
+    return NextResponse.json({ orders: data });
+  }
+
+  // --- Admin path: full access ---
+  if (!adminSession) {
+    return unauthorized();
+  }
+
   const orders = await db.order.findMany({
     include: { vendor: true },
     orderBy: { createdAt: "desc" },
