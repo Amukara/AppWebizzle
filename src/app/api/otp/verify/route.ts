@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { normalisePhone } from "@/lib/sms";
+import { createPortalToken } from "@/lib/portal-auth";
 
 // POST /api/otp/verify  { phone, purpose, code }
 // Verifies the OTP code and returns a signed session token if valid.
@@ -51,20 +52,8 @@ export async function POST(req: Request) {
   // Mark as verified
   await db.otpCode.update({ where: { id: otp.id }, data: { verified: true } });
 
-  // Issue a portal session token (reuses the same HMAC pattern as admin auth)
-  const crypto = await import("crypto");
-  const SESSION_SECRET =
-    process.env.PORTAL_SESSION_SECRET || "webizzle-portal-dev-secret-change-in-prod";
-  const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
-
-  const payload = Buffer.from(
-    JSON.stringify({ phone, purpose, exp: Date.now() + SESSION_TTL_MS })
-  ).toString("base64url");
-  const sig = crypto
-    .createHmac("sha256", SESSION_SECRET)
-    .update(payload)
-    .digest("base64url");
-  const token = `${payload}.${sig}`;
+  // Issue a portal session token — shares the same secret as getPortalSession
+  const token = createPortalToken(phone, purpose as "VENDOR_LOGIN" | "RIDER_LOGIN");
 
   return NextResponse.json({
     ok: true,

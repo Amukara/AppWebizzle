@@ -84,6 +84,21 @@ export function getPortalSession(
   return null;
 }
 
+export function createPortalToken(
+  phone: string,
+  purpose: PortalSession["purpose"],
+  ttlMs: number = 8 * 60 * 60 * 1000 // 8 hours default
+): string {
+  const payload = Buffer.from(
+    JSON.stringify({ phone, purpose, exp: Date.now() + ttlMs } as PortalSession)
+  ).toString("base64url");
+  const sig = crypto
+    .createHmac("sha256", SESSION_SECRET)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${sig}`;
+}
+
 export function portalUnauthorized() {
   return Response.json({ error: "Unauthorized — please verify your phone" }, { status: 401 });
 }
