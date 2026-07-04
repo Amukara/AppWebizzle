@@ -36,6 +36,12 @@ yarn-error.log*
 # vercel
 .vercel
 
+# database — never commit live data (contains password hashes, OTP codes, PII)
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+
 
 # typescript
 *.tsbuildinfo
