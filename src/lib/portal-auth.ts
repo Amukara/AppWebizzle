@@ -2,8 +2,24 @@
 // Mirrors the admin auth pattern (HMAC-signed token).
 import crypto from "crypto";
 
-const SESSION_SECRET =
-  process.env.PORTAL_SESSION_SECRET || "webizzle-portal-dev-secret-change-in-prod";
+// In production the secret MUST come from the environment — no fallback.
+// In development we generate a throwaway value so the dev loop works without
+// boilerplate, but it changes every restart (sessions are lost on restart
+// anyway in dev).
+const isProd = process.env.NODE_ENV === "production";
+const SESSION_SECRET: string = (() => {
+  const env = process.env.PORTAL_SESSION_SECRET;
+  if (env && env.length >= 32) return env;
+  if (isProd) {
+    throw new Error(
+      "PORTAL_SESSION_SECRET is not set or too short (>= 32 chars required). " +
+      "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\" " +
+      "and add it to your .env or deployment environment."
+    );
+  }
+  // Dev-only: ephemeral secret, changes every cold start
+  return require("crypto").randomBytes(48).toString("hex");
+})();
 
 export type PortalSession = {
   phone: string;
