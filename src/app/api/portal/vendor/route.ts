@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { normalisePhone } from "@/lib/sms";
+import { getPortalSession, portalUnauthorized } from "@/lib/portal-auth";
 
 // GET /api/portal/vendor?vendorId=v1  — fetch (or auto-create) a vendor portal profile.
 // GET /api/portal/vendor?phone=0712345678  — look up vendor portal by phone (OTP-authenticated).
@@ -9,9 +10,20 @@ export async function GET(req: Request) {
   const vendorId = searchParams.get("vendorId");
   const phone = searchParams.get("phone");
 
+  // --- Phone-based lookup (after OTP verification) ---
   if (phone) {
-    // Phone-based lookup (after OTP verification)
+    // Verify portal session — the token's phone must match the requested phone
+    const session = getPortalSession(req, "VENDOR_LOGIN");
+    if (!session) {
+      return portalUnauthorized();
+    }
     const norm = normalisePhone(phone);
+    const sessionNorm = normalisePhone(session.phone);
+    // The session phone must match the requested phone (identity check)
+    if (norm !== sessionNorm) {
+      return portalUnauthorized();
+    }
+
     // Look for a VendorPortal with this phone number
     const portal = await db.vendorPortal.findFirst({ where: { phone: norm } });
     if (!portal) {
@@ -58,16 +70,34 @@ export async function GET(req: Request) {
     });
   }
 
-  // vendorId-based lookup (legacy / internal)
+  // --- vendorId-based lookup (session-gated) ---
   if (!vendorId) {
     return NextResponse.json({ error: "vendorId or phone is required" }, { status: 400 });
   }
+
+  // Verify portal session for vendorId-based access
+  const session = getPortalSession(req, "VENDOR_LOGIN");
+  if (!session) {
+    return portalUnauthorized();
+  }
+
   const vendor = await db.vendor.findUnique({ where: { id: vendorId } });
   if (!vendor) {
     return NextResponse.json({ error: "Vendor not found" }, { status: 404 });
   }
+
+  // Verify this vendor belongs to the session's phone
+  const portal = await db.vendorPortal.findUnique({ where: { vendorId } });
+  if (portal && portal.phone) {
+    const portalNorm = normalisePhone(portal.phone);
+    const sessionNorm = normalisePhone(session.phone);
+    if (portalNorm && portalNorm !== sessionNorm) {
+      return portalUnauthorized();
+    }
+  }
+
   // Auto-create the portal profile on first access.
-  const portal = await db.vendorPortal.upsert({
+  const upserted = await db.vendorPortal.upsert({
     where: { vendorId },
     update: {},
     create: {
@@ -78,14 +108,14 @@ export async function GET(req: Request) {
   });
   return NextResponse.json({
     portal: {
-      id: portal.id,
-      vendorId: portal.vendorId,
-      shopName: portal.shopName,
-      phone: portal.phone,
-      isOnline: portal.isOnline,
-      dutyStart: portal.dutyStart,
-      dutyEnd: portal.dutyEnd,
-      lastSeen: portal.lastSeen.toISOString(),
+      id: upserted.id,
+      vendorId: upserted.vendorId,
+      shopName: upserted.shopName,
+      phone: upserted.phone,
+      isOnline: upserted.isOnline,
+      dutyStart: upserted.dutyStart,
+      dutyEnd: upserted.dutyEnd,
+      lastSeen: upserted.lastSeen.toISOString(),
     },
     vendor: {
       id: vendor.id,
@@ -100,6 +130,12 @@ export async function GET(req: Request) {
 
 // PATCH /api/portal/vendor — update duty hours, phone, and/or online status.
 export async function PATCH(req: Request) {
+  // Verify portal session
+  const session = getPortalSession(req, "VENDOR_LOGIN");
+  if (!session) {
+    return portalUnauthorized();
+  }
+
   let body: {
     vendorId?: string;
     isOnline?: boolean;
@@ -115,6 +151,19 @@ export async function PATCH(req: Request) {
   if (!body.vendorId) {
     return NextResponse.json({ error: "vendorId is required" }, { status: 400 });
   }
+
+  // Verify the vendor portal belongs to this session's phone
+  const existingPortal = await db.vendorPortal.findUnique({
+    where: { vendorId: body.vendorId },
+  });
+  if (existingPortal && existingPortal.phone) {
+    const portalNorm = normalisePhone(existingPortal.phone);
+    const sessionNorm = normalisePhone(session.phone);
+    if (portalNorm && portalNorm !== sessionNorm) {
+      return portalUnauthorized();
+    }
+  }
+
   const data: Record<string, unknown> = { lastSeen: new Date() };
   if (typeof body.isOnline === "boolean") data.isOnline = body.isOnline;
   if (typeof body.dutyStart === "string" && /^\d{2}:\d{2}$/.test(body.dutyStart))

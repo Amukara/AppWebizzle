@@ -271,9 +271,12 @@ export function RiderPortalPage({
       // Optimistic flip
       setPortal({ ...portal, isOnline: next });
       try {
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        const token = portalTokenState;
+        if (token) headers["x-portal-token"] = token;
         const res = await fetch("/api/portal/rider", {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers,
           body: JSON.stringify({ riderKey, isOnline: next }),
         });
         if (!res.ok) throw new Error(`Failed (${res.status})`);
@@ -306,9 +309,12 @@ export function RiderPortalPage({
     if (trimmed === (portal.plate || "").toUpperCase()) return;
     setSavingPlate(true);
     try {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      const token = portalTokenState;
+      if (token) headers["x-portal-token"] = token;
       const res = await fetch("/api/portal/rider", {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({ riderKey, plate: trimmed }),
       });
       if (!res.ok) throw new Error(`Failed (${res.status})`);

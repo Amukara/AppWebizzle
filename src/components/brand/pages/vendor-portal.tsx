@@ -328,9 +328,12 @@ export function VendorPortalPage({
     if (!vendorId || !portal) return null;
     setPatching(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const token = portalToken;
+      if (token) headers["x-portal-token"] = token;
       const res = await fetch("/api/portal/vendor", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ vendorId, ...patch }),
       });
       if (!res.ok) {

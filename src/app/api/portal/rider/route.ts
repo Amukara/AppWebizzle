@@ -1,15 +1,33 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { pickRider } from "@/lib/pricing";
+import { getPortalSession, portalUnauthorized } from "@/lib/portal-auth";
+import { normalisePhone } from "@/lib/sms";
 
 // GET /api/portal/rider?riderKey=0711... — fetch (or auto-create) a rider portal profile.
 // The riderKey is the rider's phone (used to log in to the portal).
 export async function GET(req: Request) {
+  // Verify portal session — must be a RIDER_LOGIN token
+  const session = getPortalSession(req, "RIDER_LOGIN");
+  if (!session) {
+    return portalUnauthorized();
+  }
+
   const { searchParams } = new URL(req.url);
   const riderKey = searchParams.get("riderKey")?.trim();
   if (!riderKey) {
     return NextResponse.json({ error: "riderKey is required" }, { status: 400 });
   }
+
+  // Identity check: the session's phone must match the requested riderKey
+  const keyNorm = normalisePhone(riderKey);
+  const sessionNorm = normalisePhone(session.phone);
+  if (keyNorm !== sessionNorm) {
+    return portalUnauthorized();
+  }
+
+  // Use the raw riderKey for DB lookups (that's what the client stores/uses),
+  // but fall back to normalised form if no existing record found.
   const portal = await db.riderPortal.upsert({
     where: { riderKey },
     update: {},
@@ -35,6 +53,12 @@ export async function GET(req: Request) {
 
 // PATCH /api/portal/rider — update online status / profile fields.
 export async function PATCH(req: Request) {
+  // Verify portal session — must be a RIDER_LOGIN token
+  const session = getPortalSession(req, "RIDER_LOGIN");
+  if (!session) {
+    return portalUnauthorized();
+  }
+
   let body: {
     riderKey?: string;
     isOnline?: boolean;
@@ -49,6 +73,14 @@ export async function PATCH(req: Request) {
   if (!body.riderKey) {
     return NextResponse.json({ error: "riderKey is required" }, { status: 400 });
   }
+
+  // Identity check: the session's phone must match the riderKey being modified
+  const keyNorm = normalisePhone(body.riderKey);
+  const sessionNorm = normalisePhone(session.phone);
+  if (keyNorm !== sessionNorm) {
+    return portalUnauthorized();
+  }
+
   const data: Record<string, unknown> = { lastSeen: new Date() };
   if (typeof body.isOnline === "boolean") data.isOnline = body.isOnline;
   if (typeof body.fullName === "string") data.fullName = body.fullName.trim();
