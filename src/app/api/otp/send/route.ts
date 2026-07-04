@@ -56,8 +56,17 @@ export async function POST(req: Request) {
     data: { phone, code, purpose, expiresAt },
   });
 
-  // Send SMS (falls back to dev mode if no Africa's Talking credentials)
-  const result = await sendOtp(phone, code);
+  // Send SMS (dev fallback only when NODE_ENV !== "production")
+  let result: Awaited<ReturnType<typeof sendOtp>>;
+  try {
+    result = await sendOtp(phone, code);
+  } catch (err) {
+    console.error("[OTP] Send failed:", err);
+    return NextResponse.json(
+      { error: "Failed to send verification code. Please try again later." },
+      { status: 500 }
+    );
+  }
 
   if (!result.sent) {
     return NextResponse.json(

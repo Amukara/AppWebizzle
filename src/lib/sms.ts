@@ -33,7 +33,15 @@ export function generateOtp(): string {
 async function sendViaAfricasTalking(phone: string, message: string): Promise<boolean> {
   const apiKey = process.env.AFRICASTALKING_API_KEY;
   const username = process.env.AFRICASTALKING_USERNAME;
-  if (!apiKey || !username) return false;
+  if (!apiKey || !username) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "AFRICASTALKING_API_KEY and AFRICASTALKING_USERNAME must be set in production. " +
+        "OTP delivery requires a real SMS provider."
+      );
+    }
+    return false;
+  }
 
   const res = await fetch(`${AFRICASTALKING_API}/messaging`, {
     method: "POST",
@@ -62,7 +70,12 @@ export async function sendOtp(phone: string, code: string): Promise<{ sent: bool
     return { sent: true };
   }
 
-  // Dev / fallback mode — log to console, return code for testing
+  // Dev-only fallback — log to console, return code for testing.
+  // In production, sendViaAfricasTalking throws if creds are missing,
+  // so reaching here means the SMS actually failed (network, API error).
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("OTP SMS delivery failed and no dev fallback is available in production.");
+  }
   console.log(`[OTP DEV] Phone: ${phone}, Code: ${code}`);
   return { sent: true, devCode: code };
 }
