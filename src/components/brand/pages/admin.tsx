@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   Lock,
+  Settings,
   Loader2,
   RefreshCw,
   LogOut,
@@ -1778,6 +1779,214 @@ function AirtableTab() {
   );
 }
 
+// ---------- Settings Tab ----------
+function SettingsTab() {
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [showCurrent, setShowCurrent] = React.useState(false);
+  const [showNew, setShowNew] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [success, setSuccess] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const strength = React.useMemo(() => {
+    if (!newPassword) return 0;
+    let score = 0;
+    if (newPassword.length >= 8) score++;
+    if (newPassword.length >= 12) score++;
+    if (/[A-Z]/.test(newPassword)) score++;
+    if (/[0-9]/.test(newPassword)) score++;
+    if (/[^A-Za-z0-9]/.test(newPassword)) score++;
+    return score; // 0–5
+  }, [newPassword]);
+
+  const strengthLabel = React.useMemo(() => {
+    if (strength <= 1) return { text: "Weak", color: "text-red-500", bg: "bg-red-500" };
+    if (strength <= 2) return { text: "Fair", color: "text-amber-500", bg: "bg-amber-500" };
+    if (strength <= 3) return { text: "Good", color: "text-blue-500", bg: "bg-blue-500" };
+    return { text: "Strong", color: "text-green-600", bg: "bg-green-500" };
+  }, [strength]);
+
+  const canSubmit =
+    currentPassword.length > 0 &&
+    newPassword.length >= 8 &&
+    newPassword === confirmPassword &&
+    !loading;
+
+  const handleSubmit = async () => {
+    setError(null);
+    setSuccess(null);
+
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError("New password must be at least 8 characters.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to change password.");
+        return;
+      }
+      setSuccess("Password changed successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch {
+      setError("Could not reach the server. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-lg space-y-5">
+      <div>
+        <div className="flex items-center gap-2">
+          <Lock size={18} className="text-brand" />
+          <h3 className="text-base font-bold">Change password</h3>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Update your admin account password. You will need to use the new password next time you sign in.
+        </p>
+      </div>
+
+      <Card className="space-y-4 p-5">
+        {/* Current password */}
+        <div className="space-y-1.5">
+          <Label htmlFor="current-pw">Current password</Label>
+          <div className="relative">
+            <Input
+              id="current-pw"
+              type={showCurrent ? "text" : "password"}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter your current password"
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setShowCurrent(!showCurrent)}
+            >
+              {showCurrent ? "Hide" : "Show"}
+            </button>
+          </div>
+        </div>
+
+        {/* New password */}
+        <div className="space-y-1.5">
+          <Label htmlFor="new-pw">New password</Label>
+          <div className="relative">
+            <Input
+              id="new-pw"
+              type={showNew ? "text" : "password"}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setShowNew(!showNew)}
+            >
+              {showNew ? "Hide" : "Show"}
+            </button>
+          </div>
+          {/* Strength meter */}
+          {newPassword.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "h-1 flex-1 rounded-full transition-colors",
+                      i <= strength ? strengthLabel.bg : "bg-muted"
+                    )}
+                  />
+                ))}
+              </div>
+              <p className={cn("text-[11px] font-medium", strengthLabel.color)}>
+                {strengthLabel.text}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Confirm new password */}
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm-pw">Confirm new password</Label>
+          <Input
+            id="confirm-pw"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Re-enter your new password"
+            autoComplete="new-password"
+          />
+          {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+            <p className="text-xs text-destructive">Passwords do not match.</p>
+          )}
+          {confirmPassword.length > 0 && newPassword === confirmPassword && (
+            <p className="text-xs text-green-600">Passwords match.</p>
+          )}
+        </div>
+
+        {/* Submit */}
+        <Button
+          className="w-full bg-brand text-white hover:bg-brand-dark"
+          disabled={!canSubmit}
+          onClick={handleSubmit}
+        >
+          {loading ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Changing password…
+            </>
+          ) : (
+            <>
+              <Lock size={16} />
+              Change password
+            </>
+          )}
+        </Button>
+
+        {error && (
+          <div className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="rounded-lg bg-green-50 px-3 py-2 text-center text-xs text-green-700">
+            {success}
+          </div>
+        )}
+      </Card>
+
+      {/* Security tips */}
+      <div className="rounded-xl bg-muted/60 p-3 text-[11px] text-muted-foreground leading-relaxed">
+        <Lock size={12} className="mr-1 inline text-brand" />
+        <strong>Security tips:</strong> Use a mix of uppercase, lowercase, numbers, and symbols. 
+        Avoid reusing passwords from other services. Change your password regularly.
+      </div>
+    </div>
+  );
+}
+
 // ---------- Main component ----------
 export function AdminPage() {
   // `authed` is a boolean mirror of the server-side cookie session. The cookie
@@ -2295,6 +2504,10 @@ export function AdminPage() {
             <Database size={14} />
             Airtable
           </TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5">
+            <Settings size={14} />
+            Settings
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -2368,6 +2581,10 @@ export function AdminPage() {
 
         <TabsContent value="airtable" className="mt-4">
           <AirtableTab />
+        </TabsContent>
+
+        <TabsContent value="settings" className="mt-4">
+          <SettingsTab />
         </TabsContent>
       </Tabs>
     </div>

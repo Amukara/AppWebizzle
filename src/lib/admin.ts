@@ -12,6 +12,12 @@ const SESSION_SECRET =
   process.env.ADMIN_SESSION_SECRET || "webizzle-dev-session-secret-change-in-prod";
 
 // ---- password hashing (scrypt) ----
+export function hashPassword(plain: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(plain, salt, 64).toString("hex");
+  return `scrypt:${salt}:${hash}`;
+}
+
 function verifyPassword(plain: string, stored: string): boolean {
   const parts = stored.split(":");
   if (parts.length !== 3 || parts[0] !== "scrypt") return false;
