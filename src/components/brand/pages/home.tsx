@@ -20,7 +20,7 @@ import { SavingsWidget } from "./savings";
 import { ProductDetail, TrendBadge } from "./product-detail";
 import { LocationPrompt } from "../ui/location-prompt";
 import { useGeolocation } from "@/hooks/use-geolocation";
-import { getCustomerProfile, saveCustomerProfile } from "@/lib/customer";
+import { getCustomerProfile, saveCustomerProfile, type CustomerProfile } from "@/lib/customer";
 import type { PageId, Product, Vendor } from "@/lib/types";
 
 const CATEGORIES = [
@@ -55,9 +55,15 @@ export function HomePage({
 }) {
   const [detail, setDetail] = useState<Product | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  // Read the remembered customer once on mount (SSR-safe; returns empty on server).
-  const [client] = useState(() => getCustomerProfile());
-  const knownClient = Boolean(client.name && client.phone);
+  // Read the remembered customer after mount to avoid hydration mismatch.
+  // On the server (and during hydration) this is null; the useEffect
+  // populates it from localStorage once the client has painted.
+  const [client, setClient] = useState<CustomerProfile | null>(null);
+  const knownClient = Boolean(client?.name && client?.phone);
+
+  useEffect(() => {
+    setClient(getCustomerProfile());
+  }, []);
 
   // Location services
   const geo = useGeolocation();
